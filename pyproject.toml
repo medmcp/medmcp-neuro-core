@@ -3,13 +3,14 @@ requires = ["uv_build"]
 build-backend = "uv_build"
 
 [project]
-name = "medmcp-template"
-version = "0.0.0"
-description = "Template for medmcp ecosystem packages (stacks, foundations, tools)."
+name = "medmcp-neuro"
+version = "0.1.0"
+description = "Neuro imaging tools for the medmcp ecosystem."
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "Julian McGinnis", email = "julian.mcginnis@tum.de" },
+    { name = "Paul Friedrich", email = "paul.friedrich@unibas.ch" },
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -28,23 +29,24 @@ classifiers = [
 keywords = ["medical", "image processing", "ai-agent", "mcp"]
 requires-python = ">=3.12"
 dependencies = [
+    "hd-bet>=2.0.1",
     "mcp>=1.0",
     # "medmcp-dicom>=0.1",  # uncomment once medmcp-dicom is available
 ]
 
 [project.scripts]
-medmcp-template = "medmcp_template.server:main"
+medmcp-neuro = "medmcp_neuro.server:main"
 
 [project.entry-points."medmcp.stacks"]
-medmcp-template = "medmcp_template.server:server_config"
+medmcp-neuro = "medmcp_neuro.server:server_config"
 
 # How a downstream "core" package declares this package as an optional extra:
 # [project.optional-dependencies]
 # neuro = ["medmcp-neuro>=0.1"]
 
 [project.urls]
-Homepage = "https://github.com/medmcp/medmcp-template"
-Issues = "https://github.com/medmcp/medmcp-template/issues"
+Homepage = "https://github.com/medmcp/medmcp-neuro"
+Issues = "https://github.com/medmcp/medmcp-neuro/issues"
 
 # Pin git-sourced medmcp packages during development:
 # [tool.uv.sources]
