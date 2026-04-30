@@ -41,6 +41,13 @@ def _run(device: str, use_tta: bool, input_path: str, stem: str, brain_path: str
 
 if __name__ == "__main__":
     _args: dict[str, object] = json.loads(sys.stdin.read())
+
+    # nnU-Net uses print() for progress, which would corrupt the JSON result that
+    # skull_strip.py reads from stdout. Redirect Python stdout → stderr for the
+    # duration of inference so all nnU-Net output goes to stderr; restore before
+    # printing the result.
+    _real_stdout = sys.stdout
+    sys.stdout = sys.stderr
     try:
         _run(
             device=str(_args["device"]),
@@ -49,7 +56,12 @@ if __name__ == "__main__":
             stem=str(_args["stem"]),
             brain_path=str(_args["brain_path"]),
         )
-        print(json.dumps({"ok": True}))
+        _result: dict[str, object] = {"ok": True}
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}))
+        _result = {"ok": False, "error": str(exc)}
+    finally:
+        sys.stdout = _real_stdout
+
+    print(json.dumps(_result))
+    if not _result.get("ok"):
         sys.exit(1)

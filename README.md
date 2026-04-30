@@ -12,6 +12,9 @@ Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Expose
 | Tool | Description | Key inputs | Outputs |
 |---|---|---|---|
 | `skull_strip` | Brain extraction using HD-BET | `input_path`, `device` | `brain_path` |
+| `register_to_template` | Normalise a structural image to a standard-space template (default: MNI152NLin2009cAsym); template downloaded on first use | `input_path`, `output_dir`, `transform_type` (`rigid`/`affine`/`synquick`/`syn`) | `registered_path`, `forward_transforms`, `inverse_transforms` |
+| `coregister` | Align multiple same-subject images to a common reference (e.g. FLAIR, T2w, b0 → T1w) | `fixed_path`, `moving_paths`, `output_dir`, `transform_type` (`rigid`/`affine`) | `registered_paths`, `transform_prefixes` |
+| `apply_transform` | Apply a pre-computed ANTs transform to additional images (masks, parcellations, lesion maps) | `input_path`, `reference_path`, `transforms`, `output_dir`, `interpolation` | `output_path` |
 
 ---
 

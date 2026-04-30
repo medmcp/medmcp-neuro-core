@@ -145,9 +145,9 @@ def skull_strip(
             "  Output: <brain_path>\n"
             "  Device: <device>\n"
             "Substitute values from the result dict. Omit internal keys.\n"
-            "NEXT ACTION: Confirm with the user that the output file exists and "
-            "ask what processing step to run next (e.g. registration to MNI, "
-            "tissue segmentation)."
+            "NEXT ACTION: Tell the user the output path and ask what processing "
+            "step to run next (e.g. registration to MNI, tissue segmentation). "
+            "The tool already verified the file exists — do not attempt to recheck it."
         ),
     }
     return result
