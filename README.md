@@ -12,9 +12,9 @@ Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Expose
 | Tool | Description | Key inputs | Outputs |
 |---|---|---|---|
 | `skull_strip` | Brain extraction using HD-BET | `input_path`, `device` | `brain_path` |
-| `register_to_template` | Normalise a structural image to a standard-space template (default: MNI152NLin2009cAsym); template downloaded on first use | `input_path`, `output_dir`, `transform_type` (`rigid`/`affine`/`synquick`/`syn`) | `registered_path`, `forward_transforms`, `inverse_transforms` |
-| `coregister` | Align multiple same-subject images to a common reference (e.g. FLAIR, T2w, b0 → T1w) | `fixed_path`, `moving_paths`, `output_dir`, `transform_type` (`rigid`/`affine`) | `registered_paths`, `transform_prefixes` |
-| `apply_transform` | Apply a pre-computed ANTs transform to additional images (masks, parcellations, lesion maps) | `input_path`, `reference_path`, `transforms`, `output_dir`, `interpolation` | `output_path` |
+| `register_to_template` | Normalise a structural image to a standard-space template (default: MNI152NLin2009cAsym); template downloaded on first use | `input_path`, `output_dir`, `transform_type` (`rigid`/`similarity`/`affine`/`synquick`/`syn`) | `registered_path`, `forward_transforms`, `inverse_transforms`, `inverse_invert_flags` |
+| `coregister` | Align multiple same-subject images to a common reference (e.g. FLAIR, T2w, b0 → T1w) | `fixed_path`, `moving_paths`, `output_dir`, `transform_type` (`rigid`/`similarity`/`affine`/`synquick`/`syn`) | `registered_paths`, `transform_prefixes`, `forward_transforms_list`, `inverse_transforms_list` |
+| `apply_transform` | Apply a pre-computed ANTs transform to additional images (masks, parcellations, lesion maps) | `input_path`, `reference_path`, `transforms`, `output_dir`, `interpolation`, `invert_flags`, `output_space` | `output_path` |
 
 ---
 
@@ -38,9 +38,10 @@ Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Expose
 
 | Area | Files | Notes |
 |---|---|---|
-| Build / deps | `pyproject.toml`, `.python-version` | uv-managed, Python ≥3.12, `mcp>=1.0`, `hd-bet` |
+| Build / deps | `pyproject.toml`, `.python-version` | uv-managed, Python ≥3.12, `mcp>=1.0`, `hd-bet`, `antspyx` |
 | MCP server | `src/medmcp_neuro/server.py` | FastMCP over stdio; `server_config()` enables autodiscovery |
 | Tools | `src/medmcp_neuro/tools/` | One file per tool; shared helpers in `_neuro.py` |
+| Skills | `src/medmcp_neuro/skills/` | One `SKILL.md` per multi-step workflow; loaded by the agent |
 | Dev workflow | `justfile`, `.pre-commit-config.yaml` | `just setup`, `just check`, `just fix` |
 | CI | `.github/workflows/ci.yml` | Lint, format-check, pyright (strict), pytest on py3.12 / 3.13 |
 
