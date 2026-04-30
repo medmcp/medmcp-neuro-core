@@ -1,11 +1,48 @@
 """Tests for skull_strip tool."""
 
+import json
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medmcp_neuro.tools.skull_strip import skull_strip
+from medmcp_neuro.tools.skull_strip import DeviceChoiceResult, SkullStripResult, skull_strip
+
+_DETECT = "medmcp_neuro.tools.skull_strip.detect_devices"
+_SUBPROCESS_RUN = "medmcp_neuro.tools.skull_strip.subprocess.run"
+
+
+def _mock_subprocess_run(
+    cmd: list[str],
+    *,
+    input: str,
+    capture_output: bool,
+    text: bool,
+    timeout: int,
+) -> MagicMock:
+    """Fake subprocess.run: parse brain_path from input JSON and touch the file."""
+    args = json.loads(input)
+    Path(args["brain_path"]).touch()
+    result = MagicMock()
+    result.returncode = 0
+    result.stdout = json.dumps({"ok": True})
+    result.stderr = ""
+    return result
+
+
+def _run_with_mock(
+    tmp_path: Path,
+    device: str = "cpu",
+    filename: str = "sub-01_T1w.nii.gz",
+) -> tuple[SkullStripResult, MagicMock]:
+    """Run skull_strip with subprocess.run mocked; return (result, mock_run)."""
+    inp = tmp_path / filename
+    inp.touch()
+    with patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run:
+        result = skull_strip(inp, device=device)
+    return cast(SkullStripResult, result), mock_run
+
 
 # --- input validation ---
 
@@ -13,110 +50,115 @@ from medmcp_neuro.tools.skull_strip import skull_strip
 def test_missing_input_raises(tmp_path: Path) -> None:
     """FileNotFoundError when input_path does not exist."""
     with pytest.raises(FileNotFoundError, match="Input not found"):
-        skull_strip(tmp_path / "nonexistent.nii.gz", tmp_path / "out")
+        skull_strip(tmp_path / "nonexistent.nii.gz")
 
 
-def test_missing_binary_raises(tmp_path: Path) -> None:
-    """RuntimeError when hd-bet binary is not on PATH."""
+# --- device detection ---
+
+
+def _device_choice(tmp_path: Path, devices: list[str]) -> DeviceChoiceResult:
+    """Call skull_strip without a device and return the DeviceChoiceResult."""
+    inp = tmp_path / "brain.nii.gz"
+    inp.touch()
+    with patch(_DETECT, return_value=devices):
+        result = skull_strip(inp)
+    assert "recommended_device" in result  # narrows to DeviceChoiceResult
+    return result
+
+
+def test_device_none_always_returns_device_choice(tmp_path: Path) -> None:
+    """When device=None, always returns DeviceChoiceResult without running."""
     inp = tmp_path / "brain.nii.gz"
     inp.touch()
     with (
-        patch("medmcp_neuro.tools.skull_strip.find_binary", return_value=None),
-        pytest.raises(RuntimeError, match="hd-bet"),
+        patch(_DETECT, return_value=["cpu"]),
+        patch(_SUBPROCESS_RUN) as mock_run,
     ):
-        skull_strip(inp, tmp_path / "out")
+        result = skull_strip(inp)
+    choice = cast(DeviceChoiceResult, result)
+    assert "available_devices" in choice
+    assert "recommended_device" in choice
+    assert "brain_path" in choice
+    assert "NEXT ACTION" in choice["_render"]
+    mock_run.assert_not_called()
 
 
-# --- command construction ---
+def test_device_none_cpu_only_recommends_cpu(tmp_path: Path) -> None:
+    """When only CPU is available, recommended_device is cpu with a duration warning."""
+    choice = _device_choice(tmp_path, ["cpu"])
+    assert choice["recommended_device"] == "cpu"
+    assert "minutes" in choice["_render"]  # duration warning present
 
 
-def _run_with_mock(
-    tmp_path: Path,
-    device: str = "cpu",
-    filename: str = "sub-01_T1w.nii.gz",
-) -> tuple[dict[str, object], list[str]]:
-    """Helper: run skull_strip with subprocess.run mocked, return (result, cmd)."""
-    inp = tmp_path / filename
-    inp.touch()
-    out = tmp_path / "out"
-    with (
-        patch("medmcp_neuro.tools.skull_strip.find_binary", return_value="/fake/hd-bet"),
-        patch("subprocess.run") as mock_run,
-    ):
-        mock_run.return_value = MagicMock(returncode=0)
-        result = skull_strip(inp, out, device=device)
-        cmd: list[str] = mock_run.call_args[0][0]
-    return result, cmd
+def test_device_none_cuda_recommends_cuda(tmp_path: Path) -> None:
+    """When CUDA is available, recommended_device is cuda."""
+    choice = _device_choice(tmp_path, ["cpu", "cuda"])
+    assert choice["recommended_device"] == "cuda"
+    assert choice["available_devices"] == ["cpu", "cuda"]
 
 
-def test_creates_output_dir(tmp_path: Path) -> None:
-    """output_dir is created if it does not exist."""
-    out = tmp_path / "new" / "nested" / "dir"
+def test_device_none_mps_recommends_mps(tmp_path: Path) -> None:
+    """When MPS is available, recommended_device is mps."""
+    choice = _device_choice(tmp_path, ["cpu", "mps"])
+    assert choice["recommended_device"] == "mps"
+
+
+# --- output location ---
+
+
+def test_output_written_next_to_input(tmp_path: Path) -> None:
+    """Skull-stripped file is written to the same directory as the input."""
     inp = tmp_path / "brain.nii.gz"
     inp.touch()
-    with (
-        patch("medmcp_neuro.tools.skull_strip.find_binary", return_value="/fake/hd-bet"),
-        patch("subprocess.run") as mock_run,
-    ):
-        mock_run.return_value = MagicMock(returncode=0)
-        skull_strip(inp, out)
-    assert out.exists()
+    with patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run):
+        skull_strip(inp, device="cpu")
+    assert (tmp_path / "brain_skullstripped.nii.gz").exists()
 
 
-def test_command_includes_save_mask(tmp_path: Path) -> None:
-    """Command always passes --save_bet_mask."""
-    _, cmd = _run_with_mock(tmp_path)
-    assert "--save_bet_mask" in cmd
+# --- subprocess arguments ---
 
 
 def test_cpu_disables_tta(tmp_path: Path) -> None:
-    """--disable_tta is added when device is cpu."""
-    _, cmd = _run_with_mock(tmp_path, device="cpu")
-    assert "--disable_tta" in cmd
+    """Subprocess receives use_tta=False when device is cpu."""
+    _, mock_run = _run_with_mock(tmp_path, device="cpu")
+    call_args = json.loads(mock_run.call_args[1]["input"])
+    assert call_args["use_tta"] is False
 
 
-def test_cuda_keeps_tta(tmp_path: Path) -> None:
-    """--disable_tta is NOT added when device is cuda."""
-    _, cmd = _run_with_mock(tmp_path, device="cuda")
-    assert "--disable_tta" not in cmd
+@pytest.mark.parametrize("device", ["cuda", "mps"])
+def test_accelerator_enables_tta(tmp_path: Path, device: str) -> None:
+    """Subprocess receives use_tta=True for GPU/MPS devices."""
+    _, mock_run = _run_with_mock(tmp_path, device=device)
+    call_args = json.loads(mock_run.call_args[1]["input"])
+    assert call_args["use_tta"] is True
 
 
-def test_mps_keeps_tta(tmp_path: Path) -> None:
-    """--disable_tta is NOT added when device is mps."""
-    _, cmd = _run_with_mock(tmp_path, device="mps")
-    assert "--disable_tta" not in cmd
-
-
-def test_output_prefix_uses_brain_suffix(tmp_path: Path) -> None:
-    """Output prefix passed to hd-bet ends with _brain (no extension)."""
-    _, cmd = _run_with_mock(tmp_path, filename="sub-01_T1w.nii.gz")
-    o_idx = cmd.index("-o")
-    output_prefix = cmd[o_idx + 1]
-    assert output_prefix.endswith("sub-01_T1w_brain")
-    assert not output_prefix.endswith(".nii.gz")
+def test_subprocess_receives_correct_stem(tmp_path: Path) -> None:
+    """Subprocess receives the NIfTI stem without extension."""
+    _, mock_run = _run_with_mock(tmp_path, filename="sub-01_T1w.nii.gz")
+    call_args = json.loads(mock_run.call_args[1]["input"])
+    assert call_args["stem"] == "sub-01_T1w"
 
 
 # --- return dict ---
 
 
 def test_return_keys(tmp_path: Path) -> None:
-    """Return dict contains required keys with correct naming."""
+    """Return dict contains required keys."""
     result, _ = _run_with_mock(tmp_path, filename="sub-01_T1w.nii.gz")
-    assert "brain_path" in result
-    assert "mask_path" in result
-    assert "input_path" in result
-    assert "device" in result
-    assert "_render" in result
+    assert result["brain_path"]
+    assert result["input_path"]
+    assert result["device"]
+    assert result["_render"]
 
 
 def test_return_paths_naming(tmp_path: Path) -> None:
-    """brain_path and mask_path use _brain and _brain_mask suffixes."""
+    """brain_path uses _skullstripped suffix."""
     result, _ = _run_with_mock(tmp_path, filename="sub-01_T1w.nii.gz")
-    assert str(result["brain_path"]).endswith("sub-01_T1w_brain.nii.gz")
-    assert str(result["mask_path"]).endswith("sub-01_T1w_brain_mask.nii.gz")
+    assert result["brain_path"].endswith("sub-01_T1w_skullstripped.nii.gz")
 
 
 def test_render_contains_next_action(tmp_path: Path) -> None:
     """_render includes NEXT ACTION directive."""
     result, _ = _run_with_mock(tmp_path)
-    assert "NEXT ACTION" in str(result["_render"])
+    assert "NEXT ACTION" in result["_render"]

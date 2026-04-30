@@ -11,7 +11,7 @@ Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Expose
 
 | Tool | Description | Key inputs | Outputs |
 |---|---|---|---|
-| `skull_strip` | Brain extraction using HD-BET | `input_path`, `output_dir`, `device` | `brain_path`, `mask_path` |
+| `skull_strip` | Brain extraction using HD-BET | `input_path`, `device` | `brain_path` |
 
 ---
 
