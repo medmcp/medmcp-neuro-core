@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -112,10 +113,17 @@ def test_register_to_template_bids_output_name(tmp_path: Path) -> None:
 
 def test_register_to_template_default_output_dir(tmp_path: Path) -> None:
     """When output_dir is omitted, output is written next to the input file."""
-    result = _run_register(
-        tmp_path, filename="sub-01_T1w.nii.gz", transform_type="rigid", output_dir=None
-    )
-    assert result["registered_path"].startswith(str(tmp_path) + "/")
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.touch()
+    tmpl = tmp_path / "MNI152.nii.gz"
+    tmpl.touch()
+    with (
+        patch(_CHECK_ANTSPY),
+        patch(_GET_TEMPLATE, return_value=tmpl),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register),
+    ):
+        result = cast(RegisterToTemplateResult, register_to_template(inp, transform_type="rigid"))
+    assert Path(result["registered_path"]).parent == tmp_path
 
 
 def test_register_to_template_synquick_payload(tmp_path: Path) -> None:
@@ -323,8 +331,16 @@ def test_coregister_bids_output_name(tmp_path: Path) -> None:
 
 def test_coregister_default_output_dir(tmp_path: Path) -> None:
     """When output_dir is omitted, output is written next to the fixed image."""
-    result = _run_coregister(tmp_path, output_dir=None)
-    assert result["registered_paths"][0].startswith(str(tmp_path) + "/")
+    fixed = tmp_path / "sub-01_T1w.nii.gz"
+    fixed.touch()
+    moving = tmp_path / "sub-01_FLAIR.nii.gz"
+    moving.touch()
+    with (
+        patch(_CHECK_ANTSPY),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register),
+    ):
+        result = cast(CoregisterResult, coregister(fixed, [moving], transform_type="rigid"))
+    assert Path(result["registered_paths"][0]).parent == tmp_path
 
 
 def test_coregister_multiple_moving(tmp_path: Path) -> None:

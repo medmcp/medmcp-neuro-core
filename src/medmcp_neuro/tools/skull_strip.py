@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import TypedDict
 
-from medmcp_neuro.tools._neuro import cuda_unavailable_note, detect_devices
+from medmcp_neuro.tools._neuro import cuda_unavailable_note, detect_devices, nii_stem
 
 
 class DeviceChoiceResult(TypedDict):
@@ -27,21 +27,16 @@ class SkullStripResult(TypedDict):
     _render: str
 
 
-def _nii_stem(path: Path) -> str:
-    """Return the NIfTI stem, stripping .nii.gz or .nii suffix."""
-    stem = path.stem
-    return stem[:-4] if stem.endswith(".nii") else stem
-
-
 def skull_strip(
     input_path: Path,
+    output_dir: Path | None = None,
     device: str | None = None,
 ) -> DeviceChoiceResult | SkullStripResult:
     """Extract brain from a structural NIfTI image using HD-BET.
 
     Runs HD-BET brain extraction on a 3-D NIfTI volume and writes the
-    skull-stripped brain next to the input file with a ``_skullstripped``
-    suffix (e.g. ``sub-01_T1w.nii.gz`` → ``sub-01_T1w_skullstripped.nii.gz``).
+    skull-stripped brain to ``output_dir`` with a ``_skullstripped`` suffix
+    (e.g. ``sub-01_T1w.nii.gz`` → ``sub-01_T1w_skullstripped.nii.gz``).
     Test-time augmentation is automatically disabled on CPU (faster with
     negligible quality loss).
 
@@ -53,6 +48,8 @@ def skull_strip(
         input_path: Absolute path to the input NIfTI file (.nii or .nii.gz).
             Must be a 3-D volume; 4-D images are not supported by HD-BET.
             Use fslsplit to extract individual volumes from a 4-D series first.
+        output_dir: Directory where the skull-stripped image is written.
+            Defaults to the same directory as ``input_path``.
         device: Compute device — ``"cpu"``, ``"cuda"`` (any NVIDIA GPU), or
             ``"mps"`` (Apple Silicon). Omit to trigger device detection.
 
@@ -67,8 +64,9 @@ def skull_strip(
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
 
-    stem = _nii_stem(input_path)
-    brain_path = input_path.parent / f"{stem}_skullstripped.nii.gz"
+    out_dir = output_dir if output_dir is not None else input_path.parent
+    stem = nii_stem(input_path)
+    brain_path = out_dir / f"{stem}_skullstripped.nii.gz"
 
     if device is None:
         available = detect_devices()
@@ -93,16 +91,17 @@ def skull_strip(
         }
         return choice
 
+    out_dir.mkdir(parents=True, exist_ok=True)
     print(
         f"[medmcp-neuro] skull_strip: starting HD-BET on {device}...",
         file=sys.stderr,
         flush=True,
     )
 
-    # Run HD-BET in a subprocess with stdin=DEVNULL so none of the MCP file
-    # descriptors (stdin/stdout pipes) are inherited by nnU-Net's multiprocessing
-    # workers.  Without isolation, the Manager().Queue workers used by nnU-Net
-    # for preprocessing deadlock because they inherit the MCP pipe FDs.
+    # Run HD-BET in a subprocess with its own stdin/stdout pipes (via input= and
+    # capture_output=True) so the MCP file descriptors are not inherited by
+    # nnU-Net's multiprocessing workers.  Without isolation, the Manager().Queue
+    # workers deadlock because they inherit the MCP pipe FDs.
     proc = subprocess.run(
         [sys.executable, "-m", "medmcp_neuro.tools._run_hdbet"],
         input=json.dumps(

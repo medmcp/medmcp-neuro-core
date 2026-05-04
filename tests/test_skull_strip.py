@@ -106,13 +106,24 @@ def test_device_none_mps_recommends_mps(tmp_path: Path) -> None:
 # --- output location ---
 
 
-def test_output_written_next_to_input(tmp_path: Path) -> None:
-    """Skull-stripped file is written to the same directory as the input."""
+def test_output_written_next_to_input_by_default(tmp_path: Path) -> None:
+    """When output_dir is omitted, skull-stripped file is written next to the input."""
     inp = tmp_path / "brain.nii.gz"
     inp.touch()
     with patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run):
-        skull_strip(inp, device="cpu")
-    assert (tmp_path / "brain_skullstripped.nii.gz").exists()
+        result = cast(SkullStripResult, skull_strip(inp, device="cpu"))
+    assert Path(result["brain_path"]).parent == tmp_path
+
+
+def test_output_written_to_output_dir(tmp_path: Path) -> None:
+    """When output_dir is given, skull-stripped file is written there."""
+    inp = tmp_path / "brain.nii.gz"
+    inp.touch()
+    out_dir = tmp_path / "stripped"
+    with patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run):
+        result = cast(SkullStripResult, skull_strip(inp, output_dir=out_dir, device="cpu"))
+    assert Path(result["brain_path"]).parent == out_dir
+    assert out_dir.exists()
 
 
 # --- subprocess arguments ---

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Literal, TypedDict
 
+from medmcp_neuro.tools._neuro import nii_stem
 from medmcp_neuro.tools._template import get_mni152_1mm
 
 _MNI_SPACE = "MNI152NLin2009cAsym"
@@ -77,19 +78,9 @@ class ApplyTransformResult(TypedDict):
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 
-def _nii_stem(path: Path) -> str:
-    name = path.name
-    if name.endswith(".nii.gz"):
-        return name[:-7]
-    if name.endswith(".nii"):
-        return name[:-4]
-    return path.stem
-
-
 def _space_label(path: Path) -> str:
     """Extract the last BIDS entity from a NIfTI filename as a space label."""
-    stem = _nii_stem(path)
-    return stem.rsplit("_", 1)[-1]
+    return nii_stem(path).rsplit("_", 1)[-1]
 
 
 def _check_antspy() -> None:
@@ -223,7 +214,7 @@ def register_to_template(
     if not tmpl.exists():
         raise FileNotFoundError(f"Template not found: {tmpl}")
 
-    stem = _nii_stem(input_path)
+    stem = nii_stem(input_path)
     space = _MNI_SPACE if template_path is None else _space_label(tmpl)
     out_registered = out_dir / f"{stem}_space-{space}.nii.gz"
     prefix = str(out_dir / f"{stem}_to_{space}_")
@@ -375,7 +366,7 @@ def coregister(
     inverse_invert_flags_list: list[list[bool]] = []
 
     for moving in moving_paths:
-        stem = _nii_stem(moving)
+        stem = nii_stem(moving)
         out_registered = out_dir / f"{stem}_space-{space}.nii.gz"
         prefix = str(out_dir / f"{stem}_to_{space}_")
 
@@ -500,7 +491,7 @@ def apply_transform(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     space = output_space if output_space is not None else _space_label(reference_path)
-    stem = _nii_stem(input_path)
+    stem = nii_stem(input_path)
     out_path = out_dir / f"{stem}_space-{space}.nii.gz"
 
     payload: dict[str, object] = {
