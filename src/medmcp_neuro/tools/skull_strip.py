@@ -3,19 +3,11 @@
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import TypedDict
 
-from medmcp_neuro.tools._neuro import cuda_unavailable_note, detect_devices, nii_stem
-
-
-class DeviceChoiceResult(TypedDict):
-    """Returned when the caller must confirm device and output path with the user before running."""
-
-    available_devices: list[str]
-    recommended_device: str
-    brain_path: str
-    _render: str
+from medmcp_neuro.tools._neuro import cuda_unavailable_note, nii_stem
 
 
 class SkullStripResult(TypedDict):
@@ -30,8 +22,8 @@ class SkullStripResult(TypedDict):
 def skull_strip(
     input_path: Path,
     output_dir: Path | None = None,
-    device: str | None = None,
-) -> DeviceChoiceResult | SkullStripResult:
+    device: str = "cpu",
+) -> SkullStripResult:
     """Extract brain from a structural NIfTI image using HD-BET.
 
     Runs HD-BET brain extraction on a 3-D NIfTI volume and writes the
@@ -40,9 +32,11 @@ def skull_strip(
     Test-time augmentation is automatically disabled on CPU (faster with
     negligible quality loss).
 
-    When ``device`` is omitted, available devices are detected and the tool
-    returns a ``DeviceChoiceResult`` so the caller can confirm the device and
-    output path with the user before re-invoking with an explicit device.
+    Before calling, ask the user which compute device to use:
+    - ``"cpu"`` — always available, ~2 minutes (TTA disabled).
+    - ``"cuda"`` — NVIDIA GPU, fastest; only available if a CUDA-enabled torch is installed.
+    - ``"mps"`` — Apple Silicon GPU; only available on macOS with Apple Silicon.
+    Default to ``"cpu"`` if the user does not specify.
 
     Args:
         input_path: Absolute path to the input NIfTI file (.nii or .nii.gz).
@@ -50,12 +44,10 @@ def skull_strip(
             Use fslsplit to extract individual volumes from a 4-D series first.
         output_dir: Directory where the skull-stripped image is written.
             Defaults to the same directory as ``input_path``.
-        device: Compute device — ``"cpu"``, ``"cuda"`` (any NVIDIA GPU), or
-            ``"mps"`` (Apple Silicon). Omit to trigger device detection.
+        device: Compute device — ``"cpu"`` (default), ``"cuda"``, or ``"mps"``.
 
     Returns:
-        ``SkullStripResult`` on success, or ``DeviceChoiceResult`` when the
-        caller must confirm device selection with the user and re-invoke.
+        ``SkullStripResult`` with paths to the skull-stripped image.
 
     Raises:
         FileNotFoundError: If ``input_path`` does not exist.
@@ -68,29 +60,6 @@ def skull_strip(
     stem = nii_stem(input_path)
     brain_path = out_dir / f"{stem}_skullstripped.nii.gz"
 
-    if device is None:
-        available = detect_devices()
-        recommended = next(d for d in ("cuda", "mps", "cpu") if d in available)
-        options = ", ".join(f'"{d}"' for d in available)
-        duration_note = (
-            " CPU inference takes ~2 minutes (TTA disabled)." + cuda_unavailable_note()
-            if recommended == "cpu"
-            else ""
-        )
-        choice: DeviceChoiceResult = {
-            "available_devices": available,
-            "recommended_device": recommended,
-            "brain_path": str(brain_path),
-            "_render": (
-                f'Available devices: {options}. Recommended: "{recommended}".\n'
-                f"Output will be written to: {brain_path}\n"
-                f"NEXT ACTION: Tell the user the recommended device and output path."
-                f"{duration_note} Ask them to confirm or choose a different device, "
-                f"then call skull_strip again with the chosen device."
-            ),
-        }
-        return choice
-
     out_dir.mkdir(parents=True, exist_ok=True)
     print(
         f"[medmcp-neuro] skull_strip: starting HD-BET on {device}...",
@@ -102,37 +71,53 @@ def skull_strip(
     # capture_output=True) so the MCP file descriptors are not inherited by
     # nnU-Net's multiprocessing workers.  Without isolation, the Manager().Queue
     # workers deadlock because they inherit the MCP pipe FDs.
-    proc = subprocess.run(
-        [sys.executable, "-m", "medmcp_neuro.tools._run_hdbet"],
-        input=json.dumps(
-            {
-                "device": device,
-                "use_tta": device != "cpu",
-                "input_path": str(input_path),
-                "stem": stem,
-                "brain_path": str(brain_path),
-            }
-        ),
-        capture_output=True,
-        text=True,
-        timeout=3600,
-    )
+    # The result is written to a tempfile rather than stdout to avoid
+    # contamination from nnU-Net's own output bypassing the Python-level redirect.
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+        result_path = tf.name
 
-    if proc.stderr:
-        sys.stderr.write(proc.stderr)
-        sys.stderr.flush()
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "medmcp_neuro.tools._run_hdbet"],
+            input=json.dumps(
+                {
+                    "device": device,
+                    "use_tta": device != "cpu",
+                    "input_path": str(input_path),
+                    "stem": stem,
+                    "brain_path": str(brain_path),
+                    "result_path": result_path,
+                }
+            ),
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
 
-    if proc.returncode != 0:
-        raise RuntimeError(f"HD-BET failed (exit {proc.returncode}): {proc.stderr.strip()}")
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+            sys.stderr.flush()
 
-    stdout = proc.stdout.strip() if proc.stdout else ""
-    run_result: dict[str, object] = json.loads(stdout) if stdout else {}
-    if not run_result.get("ok"):
-        raise RuntimeError(f"HD-BET failed: {run_result.get('error', 'unknown')}")
+        if proc.returncode != 0:
+            raise RuntimeError(f"HD-BET failed (exit {proc.returncode}): {proc.stderr.strip()}")
+
+        try:
+            with open(result_path) as f:
+                run_result: dict[str, object] = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            run_result = {}
+
+        if not run_result.get("ok"):
+            raise RuntimeError(f"HD-BET failed: {run_result.get('error', 'unknown')}")
+
+    finally:
+        Path(result_path).unlink(missing_ok=True)
 
     if not brain_path.exists():
         raise RuntimeError(f"Skull stripping completed but output not found: {brain_path}")
 
+    cuda_note = cuda_unavailable_note()
+    device_note = (f"\n{cuda_note.strip()}") if device == "cpu" and cuda_note else ""
     result: SkullStripResult = {
         "brain_path": str(brain_path),
         "input_path": str(input_path),
@@ -143,7 +128,7 @@ def skull_strip(
             "  Input:  <input_path>\n"
             "  Output: <brain_path>\n"
             "  Device: <device>\n"
-            "Substitute values from the result dict. Omit internal keys.\n"
+            f"Substitute values from the result dict. Omit internal keys.{device_note}\n"
             "NEXT ACTION: Tell the user the output path and ask what processing "
             "step to run next (e.g. registration to MNI, tissue segmentation). "
             "The tool already verified the file exists — do not attempt to recheck it."

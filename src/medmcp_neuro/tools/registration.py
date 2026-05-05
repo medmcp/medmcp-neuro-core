@@ -4,6 +4,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -26,14 +27,6 @@ _TRANSFORM_TYPE = Literal["rigid", "similarity", "affine", "synquick", "syn"]
 # ── TypedDicts ─────────────────────────────────────────────────────────────────
 
 
-class RegisterToTemplateChoiceResult(TypedDict):
-    """Returned when the caller must confirm transform type before running."""
-
-    available_transforms: list[str]
-    recommended_transform: str
-    _render: str
-
-
 class RegisterToTemplateResult(TypedDict):
     """Successful template-space normalisation result."""
 
@@ -44,14 +37,6 @@ class RegisterToTemplateResult(TypedDict):
     inverse_invert_flags: list[bool]
     template_path: str
     transform_type: str
-    _render: str
-
-
-class CoregisterChoiceResult(TypedDict):
-    """Returned when the caller must confirm transform type before running."""
-
-    available_transforms: list[str]
-    recommended_transform: str
     _render: str
 
 
@@ -96,23 +81,35 @@ def _check_antspy() -> None:
 
 def _run_antspy(payload: dict[str, object], timeout: int) -> dict[str, object]:
     """Call _run_ants.py in an isolated subprocess and return the parsed result dict."""
-    proc = subprocess.run(
-        [sys.executable, "-m", "medmcp_neuro.tools._run_ants"],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-    if proc.stderr:
-        sys.stderr.write(proc.stderr)
-        sys.stderr.flush()
-    if proc.returncode != 0:
-        raise RuntimeError(f"ANTsPy failed (exit {proc.returncode}): {proc.stderr.strip()}")
-    stdout = proc.stdout.strip() if proc.stdout else ""
-    result: dict[str, object] = json.loads(stdout) if stdout else {}
-    if not result.get("ok"):
-        raise RuntimeError(f"ANTsPy failed: {result.get('error', 'unknown')}")
-    return result
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+        result_path = tf.name
+
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "medmcp_neuro.tools._run_ants"],
+            input=json.dumps({**payload, "result_path": result_path}),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if proc.stderr:
+            sys.stderr.write(proc.stderr)
+            sys.stderr.flush()
+        if proc.returncode != 0:
+            raise RuntimeError(f"ANTsPy failed (exit {proc.returncode}): {proc.stderr.strip()}")
+
+        try:
+            with open(result_path) as f:
+                result: dict[str, object] = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            result = {}
+
+        if not result.get("ok"):
+            raise RuntimeError(f"ANTsPy failed: {result.get('error', 'unknown')}")
+
+        return result
+    finally:
+        Path(result_path).unlink(missing_ok=True)
 
 
 def _str_list(val: object) -> list[str]:
@@ -132,15 +129,13 @@ def _bool_list(val: object) -> list[bool]:
 
 def register_to_template(
     input_path: Path,
-    transform_type: _TRANSFORM_TYPE | None = None,
+    transform_type: _TRANSFORM_TYPE,
     output_dir: Path | None = None,
     template_path: Path | None = None,
-) -> RegisterToTemplateChoiceResult | RegisterToTemplateResult:
+) -> RegisterToTemplateResult:
     """Register a structural NIfTI image to a standard-space template (default: MNI152).
 
-    Load the ``registration`` skill before calling this tool. Do not pick a transform
-    type or call this tool without first presenting options to the user and getting
-    their confirmation — the skill defines the exact sequence to follow.
+    Load the ``registration`` skill before calling this tool.
 
     Normalises a 3-D structural volume to a standard-space template using ANTsPy
     (the Python interface to ANTs — installed automatically as a package dependency,
@@ -149,15 +144,18 @@ def register_to_template(
     ``~/.medmcp_neuro/templates/``; subsequent calls use the cached copy. A custom
     template can be supplied via ``template_path``.
 
-    Output is written to ``output_dir`` (defaults to the same directory as the input).
+    Before calling, ask the user which transform type to use and pass their confirmed
+    choice as ``transform_type``. Available options:
 
-    Transform types:
-        - ``rigid``: 6 DOF rigid-body alignment (~1-2 min).
-        - ``similarity``: 7 DOF rigid + uniform scaling (~1-2 min). Use when images
-          are from different scanners with slightly different voxel scales.
-        - ``affine``: 12 DOF affine alignment (~2-5 min).
-        - ``synquick``: affine + fast SyN deformable warp (~5-10 min).
-        - ``syn``: affine + full SyN deformable warp, best quality (~20-60 min on CPU).
+    - ``"rigid"``      — 6 DOF rigid-body alignment. Recommended for most cases.
+    - ``"similarity"`` — 7 DOF rigid + uniform scaling. Use when images are from different scanners.
+    - ``"affine"``     — 12 DOF affine alignment. Adds scaling and shear.
+    - ``"synquick"``   — affine + fast SyN deformable warp.
+    - ``"syn"``        — affine + full SyN, best quality (slowest).
+
+    Timing varies with image size and hardware; ``syn`` is significantly slower than the others.
+
+    Output is written to ``output_dir`` (defaults to the same directory as the input).
 
     Output files written to ``output_dir``:
         - ``{stem}_space-{space}.nii.gz`` — registered image (BIDS-named).
@@ -167,14 +165,11 @@ def register_to_template(
 
     Args:
         input_path: Absolute path to the structural NIfTI (.nii or .nii.gz).
-        transform_type: Registration transform. Always omit on the first call — the
-            tool returns available options for the user to choose from. Re-call with
-            the confirmed value to run registration.
+        transform_type: Registration transform confirmed by the user.
         output_dir: Directory where outputs are written. Defaults to ``input_path.parent``.
         template_path: Custom reference template. Defaults to MNI152NLin2009cAsym 1 mm.
 
     Returns:
-        ``RegisterToTemplateChoiceResult`` when ``transform_type`` is omitted, or
         ``RegisterToTemplateResult`` on success. Pass ``forward_transforms`` directly
         to ``apply_transform`` to warp additional images into template space. For
         native space, pass ``inverse_transforms`` with ``invert_flags=inverse_invert_flags``.
@@ -186,26 +181,6 @@ def register_to_template(
     _check_antspy()
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
-
-    if transform_type is None:
-        choice: RegisterToTemplateChoiceResult = {
-            "available_transforms": ["rigid", "similarity", "affine", "synquick", "syn"],
-            "recommended_transform": "rigid",
-            "_render": (
-                'Available transform types (recommended: "rigid"):\n'
-                '  "rigid"      — 6 DOF rigid-body alignment (~1-2 min). '
-                "Recommended for most use cases.\n"
-                '  "similarity" — 7 DOF rigid + uniform scaling (~1-2 min). '
-                "Use when images are from different scanners.\n"
-                '  "affine"     — 12 DOF affine alignment (~2-5 min). Adds scaling and shear.\n'
-                '  "synquick"   — affine + fast SyN deformable warp (~5-10 min).\n'
-                '  "syn"        — affine + full SyN, best quality (~20-60 min on CPU).\n'
-                "NEXT ACTION: Tell the user the available transform types with their "
-                'descriptions. Ask them to confirm "rigid" or choose a different type, '
-                "then call register_to_template again with the chosen transform_type."
-            ),
-        }
-        return choice
 
     out_dir = output_dir if output_dir is not None else input_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -280,19 +255,30 @@ def register_to_template(
 def coregister(
     fixed_path: Path,
     moving_paths: list[Path],
-    transform_type: _TRANSFORM_TYPE | None = None,
+    transform_type: _TRANSFORM_TYPE,
     output_dir: Path | None = None,
-) -> CoregisterChoiceResult | CoregisterResult:
+) -> CoregisterResult:
     """Align multiple images of the same subject to a common reference image.
 
-    Load the ``registration`` skill before calling this tool. Do not pick a transform
-    type or call this tool without first presenting options to the user and getting
-    their confirmation — the skill defines the exact sequence to follow.
+    Load the ``registration`` skill before calling this tool.
 
     Registers each moving image to the fixed reference using ANTsPy. Intended for
     within-subject multi-contrast alignment (e.g. FLAIR or T2w to T1w, DWI b0 to T1w).
     Use ``syn`` or ``synquick`` when EPI distortion or other non-linear differences
     are present (e.g. DWI/fMRI b0 to T1w).
+
+    Before calling, ask the user which transform type to use and pass their confirmed
+    choice as ``transform_type``. Available options:
+
+    - ``"rigid"``      — 6 DOF rigid-body alignment. Recommended for most within-subject
+      coregistration.
+    - ``"similarity"`` — 7 DOF rigid + uniform scaling. Use when images are from different scanners.
+    - ``"affine"``     — 12 DOF affine alignment. Use when voxel sizes or field-of-view differ.
+    - ``"synquick"``   — affine + fast SyN deformable warp. Use for EPI distortion
+      (DWI/fMRI b0 to T1w).
+    - ``"syn"``        — affine + full SyN, best quality (slowest).
+
+    Timing varies with image size and hardware; ``syn`` is significantly slower than the others.
 
     Output is written to ``output_dir`` (defaults to the same directory as ``fixed_path``).
 
@@ -307,13 +293,10 @@ def coregister(
     Args:
         fixed_path: Reference image (e.g. T1w skull-stripped volume).
         moving_paths: Images to align to the fixed reference (e.g. FLAIR, T2w, b0).
-        transform_type: Registration transform. Always omit on the first call — the
-            tool returns available options for the user to choose from. Re-call with
-            the confirmed value to run registration.
+        transform_type: Registration transform confirmed by the user.
         output_dir: Directory where outputs are written. Defaults to ``fixed_path.parent``.
 
     Returns:
-        ``CoregisterChoiceResult`` when ``transform_type`` is omitted, or
         ``CoregisterResult`` on success.
 
     Raises:
@@ -329,28 +312,6 @@ def coregister(
     missing = [str(p) for p in moving_paths if not p.exists()]
     if missing:
         raise FileNotFoundError(f"Moving image(s) not found: {', '.join(missing)}")
-
-    if transform_type is None:
-        coreg_choice: CoregisterChoiceResult = {
-            "available_transforms": ["rigid", "similarity", "affine", "synquick", "syn"],
-            "recommended_transform": "rigid",
-            "_render": (
-                'Available transform types (recommended: "rigid"):\n'
-                '  "rigid"      — 6 DOF rigid-body alignment (~1-2 min). '
-                "Recommended for most within-subject coregistration.\n"
-                '  "similarity" — 7 DOF rigid + uniform scaling (~1-2 min). '
-                "Use when images are from different scanners.\n"
-                '  "affine"     — 12 DOF affine alignment (~2-5 min). '
-                "Use when voxel sizes or field-of-view differ.\n"
-                '  "synquick"   — affine + fast SyN deformable warp (~5-10 min). '
-                "Use for EPI distortion (DWI/fMRI b0 to T1w).\n"
-                '  "syn"        — affine + full SyN, best quality (~20-60 min on CPU).\n'
-                "NEXT ACTION: Tell the user the available transform types. "
-                'Ask them to confirm "rigid" or choose a different type, '
-                "then call coregister again with the chosen transform_type."
-            ),
-        }
-        return coreg_choice
 
     out_dir = output_dir if output_dir is not None else fixed_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)

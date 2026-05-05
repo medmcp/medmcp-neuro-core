@@ -7,10 +7,11 @@ description: Workflow for registering NIfTI images to a standard template or wit
 
 ## Steps
 
-1. **Present transform options** — call `register_to_template` or `coregister` *without*
-   `transform_type`. The tool returns a list of options with descriptions; show them to
-   the user and ask them to confirm before proceeding.
-2. **Run registration** — re-call with the user's confirmed `transform_type`.
+1. **Ask the user which transform type to use** — before calling any registration tool,
+   present the available transform types (listed in each tool's docstring) and ask the
+   user to confirm their choice.
+2. **Run registration** — call `register_to_template` or `coregister` with the confirmed
+   `transform_type`.
 3. **Apply to additional images** — use `apply_transform` with the transform lists from
    the registration result to warp masks, parcellations, or lesion maps into the same
    space without re-running registration:
@@ -19,8 +20,7 @@ description: Workflow for registering NIfTI images to a standard template or wit
 
 ## Gotchas
 
-- **Always present transform options to the user before running** — never pick a
-  transform type and call directly without asking.
+- **Always ask the user before calling** — never pick a transform type without asking.
 - For DWI/fMRI b0-to-T1w coregistration, suggest `synquick` to correct EPI distortion.
 - For label images (brain masks, atlas parcellations), use `interpolation="NearestNeighbor"`
   in `apply_transform` to avoid interpolation artefacts on integer labels.

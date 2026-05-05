@@ -1,7 +1,9 @@
 """ANTsPy subprocess entry point, isolated from MCP stdio pipes.
 
 Invoked by registration tools via subprocess.run so that ANTsPy's ITK output
-does not pollute the MCP JSON-RPC stdout pipe.
+does not pollute the MCP JSON-RPC stdout pipe. The result dict is written to a
+tempfile path supplied via the stdin payload rather than stdout, to avoid
+contamination from ITK's own output.
 
 Supported operations (dispatched from the ``operation`` key in the JSON payload
 read from stdin):
@@ -73,13 +75,8 @@ def _apply_transforms(args: dict[str, object]) -> dict[str, object]:
 
 if __name__ == "__main__":
     _args: dict[str, object] = json.loads(sys.stdin.read())
+    _result_path = str(_args["result_path"])
 
-    # ANTsPy/ITK uses print() for progress output which would corrupt the JSON
-    # result read by registration.py. Redirect Python stdout → stderr for the
-    # duration of the call so all ITK output goes to stderr; restore before
-    # printing the result.
-    _real_stdout = sys.stdout
-    sys.stdout = sys.stderr
     try:
         _op = str(_args["operation"])
         if _op == "register":
@@ -90,9 +87,9 @@ if __name__ == "__main__":
             _result = {"ok": False, "error": f"Unknown operation: {_op}"}
     except Exception as exc:
         _result = {"ok": False, "error": str(exc)}
-    finally:
-        sys.stdout = _real_stdout
 
-    print(json.dumps(_result))
+    with open(_result_path, "w") as f:
+        json.dump(_result, f)
+
     if not _result.get("ok"):
         sys.exit(1)

@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,11 +21,12 @@ _CHECK_ANTSPY = "medmcp_neuro.tools.registration._check_antspy"
 
 
 def _mock_register(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMock:
-    """Simulate _run_ants.py: touch output files and return fwd/inv transforms."""
+    """Simulate _run_ants.py: touch output files and write result to result_path."""
     args: dict[str, object] = json.loads(input)
     outprefix = str(args["outprefix"])
     ants_type = str(args["type_of_transform"])
     out_registered = str(args["out_registered"])
+    result_path = str(args["result_path"])
 
     Path(out_registered).touch()
     Path(outprefix + "0GenericAffine.mat").touch()
@@ -41,12 +41,20 @@ def _mock_register(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMoc
         inv = [outprefix + "0GenericAffine.mat", outprefix + "1InverseWarp.nii.gz"]
         inv_flags = [True, False]
 
+    Path(result_path).write_text(
+        json.dumps(
+            {
+                "ok": True,
+                "fwdtransforms": fwd,
+                "invtransforms": inv,
+                "inverse_invert_flags": inv_flags,
+            }
+        )
+    )
     mock = MagicMock()
     mock.returncode = 0
     mock.stderr = ""
-    mock.stdout = json.dumps(
-        {"ok": True, "fwdtransforms": fwd, "invtransforms": inv, "inverse_invert_flags": inv_flags}
-    )
+    mock.stdout = ""
     return mock
 
 
@@ -54,10 +62,11 @@ def _mock_apply(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMock:
     """Simulate _run_ants.py apply_transforms: touch the output file."""
     args: dict[str, object] = json.loads(input)
     Path(str(args["out_path"])).touch()
+    Path(str(args["result_path"])).write_text(json.dumps({"ok": True}))
     mock = MagicMock()
     mock.returncode = 0
     mock.stderr = ""
-    mock.stdout = json.dumps({"ok": True})
+    mock.stdout = ""
     return mock
 
 
@@ -90,7 +99,7 @@ def test_register_to_template_missing_input_raises(tmp_path: Path) -> None:
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Input not found"),
     ):
-        register_to_template(tmp_path / "nonexistent.nii.gz")
+        register_to_template(tmp_path / "nonexistent.nii.gz", transform_type="rigid")
 
 
 def test_register_to_template_missing_template_raises(tmp_path: Path) -> None:
@@ -122,7 +131,7 @@ def test_register_to_template_default_output_dir(tmp_path: Path) -> None:
         patch(_GET_TEMPLATE, return_value=tmpl),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
     ):
-        result = cast(RegisterToTemplateResult, register_to_template(inp, transform_type="rigid"))
+        result = register_to_template(inp, transform_type="rigid")
     assert Path(result["registered_path"]).parent == tmp_path
 
 
@@ -218,8 +227,7 @@ def test_register_to_template_custom_template_space_label(tmp_path: Path) -> Non
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
     ):
         result = register_to_template(inp, transform_type="rigid", template_path=custom_tmpl)
-    assert isinstance(result, dict) and "registered_path" in result
-    assert "MNIPediatricAsym" in result["registered_path"]  # type: ignore[typeddict-item]
+    assert "MNIPediatricAsym" in result["registered_path"]
 
 
 def test_register_to_template_render_has_next_action(tmp_path: Path) -> None:
@@ -228,35 +236,20 @@ def test_register_to_template_render_has_next_action(tmp_path: Path) -> None:
     assert "NEXT ACTION" in result["_render"]
 
 
-def test_register_to_template_no_transform_type_returns_choice(tmp_path: Path) -> None:
-    """Omitting transform_type returns RegisterToTemplateChoiceResult without running ANTs."""
+def test_register_to_template_subprocess_receives_result_path(tmp_path: Path) -> None:
+    """Subprocess payload includes result_path for writing the outcome JSON."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
     inp.touch()
+    tmpl = tmp_path / "MNI152.nii.gz"
+    tmpl.touch()
     with (
         patch(_CHECK_ANTSPY),
-        patch(_SUBPROCESS_RUN) as mock_run,
+        patch(_GET_TEMPLATE, return_value=tmpl),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
     ):
-        result = register_to_template(inp)
-    mock_run.assert_not_called()
-    assert isinstance(result, dict)
-    assert result["recommended_transform"] == "rigid"  # type: ignore[typeddict-item]
-    assert set(result["available_transforms"]) == {  # type: ignore[typeddict-item]
-        "rigid",
-        "similarity",
-        "affine",
-        "synquick",
-        "syn",
-    }
-    assert "NEXT ACTION" in result["_render"]
-
-
-def test_register_to_template_choice_missing_input_still_raises(tmp_path: Path) -> None:
-    """FileNotFoundError is raised even when transform_type is omitted."""
-    with (
-        patch(_CHECK_ANTSPY),
-        pytest.raises(FileNotFoundError, match="Input not found"),
-    ):
-        register_to_template(tmp_path / "nonexistent.nii.gz")
+        register_to_template(inp, transform_type="rigid")
+    payload = json.loads(mock_run.call_args[1]["input"])
+    assert "result_path" in payload
 
 
 # ── coregister ─────────────────────────────────────────────────────────────────
@@ -281,9 +274,7 @@ def _run_coregister(
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
     ):
-        result = coregister(fixed, moving, transform_type=transform_type, output_dir=out)  # type: ignore[arg-type]
-    assert isinstance(result, dict) and "registered_paths" in result
-    return result  # type: ignore[return-value]
+        return coregister(fixed, moving, transform_type=transform_type, output_dir=out)  # type: ignore[arg-type]
 
 
 def test_coregister_missing_fixed_raises(tmp_path: Path) -> None:
@@ -294,7 +285,7 @@ def test_coregister_missing_fixed_raises(tmp_path: Path) -> None:
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Fixed image not found"),
     ):
-        coregister(tmp_path / "nonexistent.nii.gz", [moving])
+        coregister(tmp_path / "nonexistent.nii.gz", [moving], transform_type="rigid")
 
 
 def test_coregister_missing_moving_raises(tmp_path: Path) -> None:
@@ -305,7 +296,7 @@ def test_coregister_missing_moving_raises(tmp_path: Path) -> None:
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Moving image"),
     ):
-        coregister(fixed, [tmp_path / "nonexistent.nii.gz"])
+        coregister(fixed, [tmp_path / "nonexistent.nii.gz"], transform_type="rigid")
 
 
 def test_coregister_empty_moving_raises(tmp_path: Path) -> None:
@@ -316,7 +307,7 @@ def test_coregister_empty_moving_raises(tmp_path: Path) -> None:
         patch(_CHECK_ANTSPY),
         pytest.raises(ValueError, match="moving_paths must not be empty"),
     ):
-        coregister(fixed, [])
+        coregister(fixed, [], transform_type="rigid")
 
 
 def test_coregister_bids_output_name(tmp_path: Path) -> None:
@@ -339,7 +330,7 @@ def test_coregister_default_output_dir(tmp_path: Path) -> None:
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
     ):
-        result = cast(CoregisterResult, coregister(fixed, [moving], transform_type="rigid"))
+        result = coregister(fixed, [moving], transform_type="rigid")
     assert Path(result["registered_paths"][0]).parent == tmp_path
 
 
@@ -433,39 +424,19 @@ def test_coregister_rigid_forward_transforms_list(tmp_path: Path) -> None:
     assert fwd[0].endswith("0GenericAffine.mat")
 
 
-def test_coregister_no_transform_type_returns_choice(tmp_path: Path) -> None:
-    """Omitting transform_type returns CoregisterChoiceResult without running ANTs."""
+def test_coregister_subprocess_receives_result_path(tmp_path: Path) -> None:
+    """Subprocess payload includes result_path for writing the outcome JSON."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
     fixed.touch()
     moving = tmp_path / "sub-01_FLAIR.nii.gz"
     moving.touch()
     with (
         patch(_CHECK_ANTSPY),
-        patch(_SUBPROCESS_RUN) as mock_run,
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
     ):
-        result = coregister(fixed, [moving])
-    mock_run.assert_not_called()
-    assert isinstance(result, dict)
-    assert result["recommended_transform"] == "rigid"  # type: ignore[typeddict-item]
-    assert set(result["available_transforms"]) == {  # type: ignore[typeddict-item]
-        "rigid",
-        "similarity",
-        "affine",
-        "synquick",
-        "syn",
-    }
-    assert "NEXT ACTION" in result["_render"]
-
-
-def test_coregister_choice_missing_fixed_still_raises(tmp_path: Path) -> None:
-    """FileNotFoundError is raised even when transform_type is omitted."""
-    moving = tmp_path / "sub-01_FLAIR.nii.gz"
-    moving.touch()
-    with (
-        patch(_CHECK_ANTSPY),
-        pytest.raises(FileNotFoundError, match="Fixed image not found"),
-    ):
-        coregister(tmp_path / "nonexistent.nii.gz", [moving])
+        coregister(fixed, [moving], transform_type="rigid")
+    payload = json.loads(mock_run.call_args[1]["input"])
+    assert "result_path" in payload
 
 
 # ── apply_transform ────────────────────────────────────────────────────────────
