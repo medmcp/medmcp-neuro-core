@@ -10,6 +10,7 @@ from medmcp_neuro.tools.registration import (
     ApplyTransformResult,
     CoregisterResult,
     RegisterToTemplateResult,
+    TransformType,
     apply_transform,
     coregister,
     register_to_template,
@@ -76,9 +77,10 @@ def _mock_apply(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMock:
 def _run_register(
     tmp_path: Path,
     filename: str = "sub-01_T1w.nii.gz",
-    transform_type: str = "syn",
+    transform_type: TransformType = "syn",
     template_name: str | None = None,
     output_dir: Path | None = None,
+    skull_stripped: bool = False,
 ) -> RegisterToTemplateResult:
     inp = tmp_path / filename
     inp.touch()
@@ -90,7 +92,9 @@ def _run_register(
         patch(_GET_TEMPLATE, return_value=tmpl),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
     ):
-        return register_to_template(inp, transform_type=transform_type, output_dir=out)  # type: ignore[arg-type]
+        return register_to_template(
+            inp, transform_type=transform_type, skull_stripped=skull_stripped, output_dir=out
+        )
 
 
 def test_register_to_template_missing_input_raises(tmp_path: Path) -> None:
@@ -99,7 +103,9 @@ def test_register_to_template_missing_input_raises(tmp_path: Path) -> None:
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Input not found"),
     ):
-        register_to_template(tmp_path / "nonexistent.nii.gz", transform_type="rigid")
+        register_to_template(
+            tmp_path / "nonexistent.nii.gz", transform_type="rigid", skull_stripped=False
+        )
 
 
 def test_register_to_template_missing_template_raises(tmp_path: Path) -> None:
@@ -111,7 +117,7 @@ def test_register_to_template_missing_template_raises(tmp_path: Path) -> None:
         patch(_GET_TEMPLATE, return_value=tmp_path / "missing.nii.gz"),
         pytest.raises(FileNotFoundError, match="Template not found"),
     ):
-        register_to_template(inp, transform_type="syn")
+        register_to_template(inp, transform_type="syn", skull_stripped=False)
 
 
 def test_register_to_template_bids_output_name(tmp_path: Path) -> None:
@@ -131,7 +137,7 @@ def test_register_to_template_default_output_dir(tmp_path: Path) -> None:
         patch(_GET_TEMPLATE, return_value=tmpl),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
     ):
-        result = register_to_template(inp, transform_type="rigid")
+        result = register_to_template(inp, transform_type="rigid", skull_stripped=False)
     assert Path(result["registered_path"]).parent == tmp_path
 
 
@@ -146,7 +152,7 @@ def test_register_to_template_synquick_payload(tmp_path: Path) -> None:
         patch(_GET_TEMPLATE, return_value=tmpl),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
     ):
-        register_to_template(inp, transform_type="synquick")
+        register_to_template(inp, transform_type="synquick", skull_stripped=False)
     payload = json.loads(mock_run.call_args[1]["input"])
     assert payload["type_of_transform"] == "SyNQuick"
 
@@ -162,7 +168,7 @@ def test_register_to_template_syn_payload(tmp_path: Path) -> None:
         patch(_GET_TEMPLATE, return_value=tmpl),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
     ):
-        register_to_template(inp, transform_type="syn")
+        register_to_template(inp, transform_type="syn", skull_stripped=False)
     payload = json.loads(mock_run.call_args[1]["input"])
     assert payload["type_of_transform"] == "SyN"
 
@@ -211,7 +217,7 @@ def test_register_to_template_similarity_payload(tmp_path: Path) -> None:
         patch(_GET_TEMPLATE, return_value=tmpl),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
     ):
-        register_to_template(inp, transform_type="similarity")
+        register_to_template(inp, transform_type="similarity", skull_stripped=False)
     payload = json.loads(mock_run.call_args[1]["input"])
     assert payload["type_of_transform"] == "Similarity"
 
@@ -226,7 +232,9 @@ def test_register_to_template_custom_template_space_label(tmp_path: Path) -> Non
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
     ):
-        result = register_to_template(inp, transform_type="rigid", template_path=custom_tmpl)
+        result = register_to_template(
+            inp, transform_type="rigid", skull_stripped=False, template_path=custom_tmpl
+        )
     assert "MNIPediatricAsym" in result["registered_path"]
 
 
@@ -234,6 +242,62 @@ def test_register_to_template_render_has_next_action(tmp_path: Path) -> None:
     """_render contains NEXT ACTION directive."""
     result = _run_register(tmp_path)
     assert "NEXT ACTION" in result["_render"]
+
+
+def test_register_to_template_skull_stripped_calls_brain_template(tmp_path: Path) -> None:
+    """skull_stripped=True passes skull_stripped=True to get_mni152_1mm."""
+    inp = tmp_path / "sub-01_T1w_desc-brain.nii.gz"
+    inp.touch()
+    tmpl = tmp_path / "MNI152_brain.nii.gz"
+    tmpl.touch()
+    with (
+        patch(_CHECK_ANTSPY),
+        patch(_GET_TEMPLATE, return_value=tmpl) as mock_tmpl,
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register),
+    ):
+        register_to_template(
+            inp, transform_type="rigid", output_dir=tmp_path / "out", skull_stripped=True
+        )
+    mock_tmpl.assert_called_once_with(skull_stripped=True)
+
+
+def test_register_to_template_no_skull_stripped_calls_full_template(tmp_path: Path) -> None:
+    """skull_stripped=False passes skull_stripped=False to get_mni152_1mm."""
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.touch()
+    tmpl = tmp_path / "MNI152.nii.gz"
+    tmpl.touch()
+    with (
+        patch(_CHECK_ANTSPY),
+        patch(_GET_TEMPLATE, return_value=tmpl) as mock_tmpl,
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register),
+    ):
+        register_to_template(
+            inp, transform_type="rigid", skull_stripped=False, output_dir=tmp_path / "out"
+        )
+    mock_tmpl.assert_called_once_with(skull_stripped=False)
+
+
+def test_register_to_template_custom_template_ignores_skull_stripped(tmp_path: Path) -> None:
+    """When template_path is provided, skull_stripped has no effect on template selection."""
+    inp = tmp_path / "sub-01_T1w_desc-brain.nii.gz"
+    inp.touch()
+    custom_tmpl = tmp_path / "tpl_custom_brain.nii.gz"
+    custom_tmpl.touch()
+    with (
+        patch(_CHECK_ANTSPY),
+        patch(_GET_TEMPLATE) as mock_tmpl,
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register),
+    ):
+        result = register_to_template(
+            inp,
+            transform_type="rigid",
+            output_dir=tmp_path / "out",
+            template_path=custom_tmpl,
+            skull_stripped=True,
+        )
+    mock_tmpl.assert_not_called()
+    assert result["template_path"] == str(custom_tmpl)
 
 
 def test_register_to_template_subprocess_receives_result_path(tmp_path: Path) -> None:
@@ -247,7 +311,7 @@ def test_register_to_template_subprocess_receives_result_path(tmp_path: Path) ->
         patch(_GET_TEMPLATE, return_value=tmpl),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
     ):
-        register_to_template(inp, transform_type="rigid")
+        register_to_template(inp, transform_type="rigid", skull_stripped=False)
     payload = json.loads(mock_run.call_args[1]["input"])
     assert "result_path" in payload
 

@@ -12,7 +12,7 @@ Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Expose
 | Tool name | Description | Inputs | Outputs |
 |---|---|---|---|
 | `skull_strip` | Brain extraction using HD-BET. Ask the user which device to use (`cpu`/`cuda`/`mps`) before calling; defaults to `cpu` | `input_path: Path`, `output_dir: Path \| None = None`, `device: str = "cpu"` | `{"brain_path": "...", "input_path": "...", "device": "...", "_render": "..."}` |
-| `register_to_template` | Normalise a structural image to MNI152NLin2009cAsym (or a custom template); template downloaded on first use. Ask the user which transform type to use before calling | `input_path: Path`, `transform_type: "rigid"\|"similarity"\|"affine"\|"synquick"\|"syn"`, `output_dir: Path \| None = None`, `template_path: Path \| None = None` | `{"registered_path": "...", "forward_transforms": [...], "inverse_transforms": [...], "inverse_invert_flags": [...], "template_path": "...", "transform_type": "...", "_render": "..."}` |
+| `register_to_template` | Normalise a structural image to MNI152NLin2009cAsym (or a custom template); template downloaded on first use. Selects the brain-extracted template variant when `skull_stripped=True`. | `input_path: Path`, `transform_type: "rigid"\|"similarity"\|"affine"\|"synquick"\|"syn"`, `output_dir: Path \| None = None`, `template_path: Path \| None = None`, `skull_stripped: bool = False` | `{"registered_path": "...", "forward_transforms": [...], "inverse_transforms": [...], "inverse_invert_flags": [...], "template_path": "...", "transform_type": "...", "_render": "..."}` |
 | `coregister` | Align multiple same-subject images to a common reference (e.g. FLAIR, T2w, b0 → T1w). Ask the user which transform type to use before calling | `fixed_path: Path`, `moving_paths: list[Path]`, `transform_type: "rigid"\|"similarity"\|"affine"\|"synquick"\|"syn"`, `output_dir: Path \| None = None` | `{"registered_paths": [...], "transform_prefixes": [...], "forward_transforms_list": [[...]], "inverse_transforms_list": [[...]], "inverse_invert_flags_list": [[...]], "_render": "..."}` |
 | `apply_transform` | Apply a pre-computed ANTs transform to additional images (brain masks, lesion maps, parcellations) without re-running registration | `input_path: Path`, `reference_path: Path`, `transforms: list[str]`, `output_dir: Path \| None = None`, `interpolation: "Linear"\|"NearestNeighbor"\|"BSpline" = "Linear"`, `output_space: str \| None = None`, `invert_flags: list[bool] \| None = None` | `{"output_path": "...", "_render": "..."}` |
 
@@ -22,7 +22,7 @@ Skills are SKILL.md files the agent loads on demand to follow multi-step workflo
 
 | Skill name | Description |
 |---|---|
-| `registration` | Step-by-step workflow for registering NIfTI images to a standard-space template or for within-subject coregistration. Instructs the agent to ask the user for a transform type before calling; covers native↔template warping of additional images, EPI distortion correction, and label interpolation. |
+| `registration` | Workflow for template normalisation and within-subject coregistration. Instructs the agent to present all transform options and wait for the user to choose; covers native↔template warping, the two-step multi-contrast workflow (coregister→apply_transform), transform composition, and label interpolation. |
 
 ---
 

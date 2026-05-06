@@ -21,7 +21,7 @@ _TRANSFORM_MAP: dict[str, str] = {
     "synquick": "SyNQuick",
     "syn": "SyN",
 }
-_TRANSFORM_TYPE = Literal["rigid", "similarity", "affine", "synquick", "syn"]
+TransformType = Literal["rigid", "similarity", "affine", "synquick", "syn"]
 
 
 # ── TypedDicts ─────────────────────────────────────────────────────────────────
@@ -129,29 +129,23 @@ def _bool_list(val: object) -> list[bool]:
 
 def register_to_template(
     input_path: Path,
-    transform_type: _TRANSFORM_TYPE,
+    transform_type: TransformType,
+    skull_stripped: bool,
     output_dir: Path | None = None,
     template_path: Path | None = None,
 ) -> RegisterToTemplateResult:
     """Register a structural NIfTI image to a standard-space template (default: MNI152).
 
-    Load the ``registration`` skill before calling this tool.
+    Load the ``registration`` skill before calling this tool. Do not prompt the user
+    for parameters or make any decisions before the skill is loaded — it defines what
+    to ask, in what order, and what to confirm.
 
     Normalises a 3-D structural volume to a standard-space template using ANTsPy
     (the Python interface to ANTs — installed automatically as a package dependency,
     no separate binary install required). On first use the MNI152NLin2009cAsym 1 mm
-    T1w template is downloaded from the templateflow S3 bucket and cached in
+    template is downloaded from the templateflow S3 bucket and cached in
     ``~/.medmcp_neuro/templates/``; subsequent calls use the cached copy. A custom
     template can be supplied via ``template_path``.
-
-    Before calling, ask the user which transform type to use and pass their confirmed
-    choice as ``transform_type``. Available options:
-
-    - ``"rigid"``      — 6 DOF rigid-body alignment. Recommended for most cases.
-    - ``"similarity"`` — 7 DOF rigid + uniform scaling. Use when images are from different scanners.
-    - ``"affine"``     — 12 DOF affine alignment. Adds scaling and shear.
-    - ``"synquick"``   — affine + fast SyN deformable warp.
-    - ``"syn"``        — affine + full SyN, best quality (slowest).
 
     Timing varies with image size and hardware; ``syn`` is significantly slower than the others.
 
@@ -165,9 +159,21 @@ def register_to_template(
 
     Args:
         input_path: Absolute path to the structural NIfTI (.nii or .nii.gz).
-        transform_type: Registration transform confirmed by the user.
+        transform_type: Registration transform chosen by the user. Options:
+            ``"rigid"`` — 6 DOF (translation + rotation).
+            ``"similarity"`` — 7 DOF (rigid + uniform scaling); accounts for
+            scanner-dependent size differences.
+            ``"affine"`` — 12 DOF (scaling, rotation, shear).
+            ``"synquick"`` — affine + fast SyN deformable warp; corrects non-linear
+            differences.
+            ``"syn"`` — affine + full SyN deformable warp; highest accuracy, slowest.
         output_dir: Directory where outputs are written. Defaults to ``input_path.parent``.
         template_path: Custom reference template. Defaults to MNI152NLin2009cAsym 1 mm.
+        skull_stripped: Set to ``True`` when ``input_path`` has already been skull-stripped
+            (e.g. output of ``skull_strip``). Selects the brain-extracted
+            (``desc-brain``) MNI152 template so that skull tissue in the reference
+            does not degrade registration quality. Ignored when ``template_path`` is
+            provided explicitly.
 
     Returns:
         ``RegisterToTemplateResult`` on success. Pass ``forward_transforms`` directly
@@ -185,7 +191,10 @@ def register_to_template(
     out_dir = output_dir if output_dir is not None else input_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    tmpl = template_path if template_path is not None else get_mni152_1mm()
+    if template_path is not None:
+        tmpl = template_path
+    else:
+        tmpl = get_mni152_1mm(skull_stripped=skull_stripped)
     if not tmpl.exists():
         raise FileNotFoundError(f"Template not found: {tmpl}")
 
@@ -255,28 +264,17 @@ def register_to_template(
 def coregister(
     fixed_path: Path,
     moving_paths: list[Path],
-    transform_type: _TRANSFORM_TYPE,
+    transform_type: TransformType,
     output_dir: Path | None = None,
 ) -> CoregisterResult:
     """Align multiple images of the same subject to a common reference image.
 
-    Load the ``registration`` skill before calling this tool.
+    Load the ``registration`` skill before calling this tool. Do not prompt the user
+    for parameters or make any decisions before the skill is loaded — it defines what
+    to ask, in what order, and what to confirm.
 
     Registers each moving image to the fixed reference using ANTsPy. Intended for
     within-subject multi-contrast alignment (e.g. FLAIR or T2w to T1w, DWI b0 to T1w).
-    Use ``syn`` or ``synquick`` when EPI distortion or other non-linear differences
-    are present (e.g. DWI/fMRI b0 to T1w).
-
-    Before calling, ask the user which transform type to use and pass their confirmed
-    choice as ``transform_type``. Available options:
-
-    - ``"rigid"``      — 6 DOF rigid-body alignment. Recommended for most within-subject
-      coregistration.
-    - ``"similarity"`` — 7 DOF rigid + uniform scaling. Use when images are from different scanners.
-    - ``"affine"``     — 12 DOF affine alignment. Use when voxel sizes or field-of-view differ.
-    - ``"synquick"``   — affine + fast SyN deformable warp. Use for EPI distortion
-      (DWI/fMRI b0 to T1w).
-    - ``"syn"``        — affine + full SyN, best quality (slowest).
 
     Timing varies with image size and hardware; ``syn`` is significantly slower than the others.
 
@@ -293,7 +291,14 @@ def coregister(
     Args:
         fixed_path: Reference image (e.g. T1w skull-stripped volume).
         moving_paths: Images to align to the fixed reference (e.g. FLAIR, T2w, b0).
-        transform_type: Registration transform confirmed by the user.
+        transform_type: Registration transform chosen by the user. Options:
+            ``"rigid"`` — 6 DOF (translation + rotation).
+            ``"similarity"`` — 7 DOF (rigid + uniform scaling); accounts for
+            scanner-dependent size differences.
+            ``"affine"`` — 12 DOF (scaling, rotation, shear).
+            ``"synquick"`` — affine + fast SyN deformable warp; corrects non-linear
+            differences including EPI distortion.
+            ``"syn"`` — affine + full SyN deformable warp; highest accuracy, slowest.
         output_dir: Directory where outputs are written. Defaults to ``fixed_path.parent``.
 
     Returns:

@@ -97,3 +97,68 @@ def test_download_failure_cleans_up_tmp_file(
     ):
         get_mni152_1mm()
     assert not any(cache_dir.glob("*.tmp"))
+
+
+# ── skull_stripped variant ────────────────────────────────────────────────────
+
+
+def test_skull_stripped_cache_hit_returns_brain_path(tmp_path: Path) -> None:
+    """skull_stripped=True returns the desc-brain cached file when it exists."""
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    brain_cached = cache_dir / _tmpl._MNI152_BRAIN_FILENAME  # type: ignore[reportPrivateUsage]
+    brain_cached.touch()
+    with patch.object(_tmpl, "_CACHE_DIR", cache_dir):
+        result = get_mni152_1mm(skull_stripped=True)
+    assert result == brain_cached
+
+
+def test_skull_stripped_fsl_returns_brain_template(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """skull_stripped=True uses FSL brain template when available."""
+    fsl_std = tmp_path / "fsl" / "data" / "standard"
+    fsl_std.mkdir(parents=True)
+    full = fsl_std / "MNI152_T1_1mm.nii.gz"
+    brain = fsl_std / "MNI152_T1_1mm_brain.nii.gz"
+    full.touch()
+    brain.touch()
+    monkeypatch.setenv("FSLDIR", str(tmp_path / "fsl"))
+    with patch.object(_tmpl, "_CACHE_DIR", tmp_path / "cache"):
+        result = get_mni152_1mm(skull_stripped=True)
+    assert result == brain
+
+
+def test_skull_stripped_fsl_missing_brain_downloads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """skull_stripped=True downloads the brain template when FSL has only the full T1w."""
+    fsl_std = tmp_path / "fsl" / "data" / "standard"
+    fsl_std.mkdir(parents=True)
+    (fsl_std / "MNI152_T1_1mm.nii.gz").touch()  # full present, brain absent
+    monkeypatch.setenv("FSLDIR", str(tmp_path / "fsl"))
+    cache_dir = tmp_path / "cache"
+    brain_cached = cache_dir / _tmpl._MNI152_BRAIN_FILENAME  # type: ignore[reportPrivateUsage]
+    with (
+        patch.object(_tmpl, "_CACHE_DIR", cache_dir),
+        patch.object(urllib.request, "urlretrieve") as mock_dl,
+    ):
+        result = get_mni152_1mm(skull_stripped=True)
+    assert result == brain_cached
+    url_used = mock_dl.call_args[0][0]
+    assert "desc-brain" in url_used
+
+
+def test_default_download_uses_full_template_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """skull_stripped=False (default) downloads the full T1w template URL."""
+    monkeypatch.delenv("FSLDIR", raising=False)
+    cache_dir = tmp_path / "cache"
+    with (
+        patch.object(_tmpl, "_CACHE_DIR", cache_dir),
+        patch.object(urllib.request, "urlretrieve") as mock_dl,
+    ):
+        get_mni152_1mm(skull_stripped=False)
+    url_used = mock_dl.call_args[0][0]
+    assert "desc-brain" not in url_used
