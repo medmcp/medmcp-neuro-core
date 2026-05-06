@@ -28,6 +28,7 @@ classifiers = [
 keywords = ["medical", "image processing", "ai-agent", "mcp"]
 requires-python = ">=3.12"
 dependencies = [
+    "antspyx>=0.5",
     "hd-bet>=2.0.1",
     "mcp>=1.0",
     # "medmcp-dicom>=0.1",  # uncomment once medmcp-dicom is available
@@ -97,6 +98,9 @@ quote-style = "double"
 
 [tool.pyright]
 include = ["src", "tests"]
+# _run_ants.py is a subprocess entry point; ANTsPy has partial stubs that cause
+# spurious reportUnknownVariableType errors throughout — exclude rather than annotate each line.
+exclude = ["src/medmcp_neuro/tools/_run_ants.py"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 

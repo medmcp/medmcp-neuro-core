@@ -1,45 +1,40 @@
 # medmcp-neuro
 
-Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Exposes an **MCP (Model Context Protocol) server** over stdio so an LLM agent can call neuroimaging operations by name.
+Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Exposes an **MCP (Model Context Protocol) server** over stdio that an LLM agent can invoke to perform brain extraction, image registration, and related neuroimaging operations.
 
 > [!WARNING]
-> Research software under active development — **not licensed for clinical use**.
+> MedMCP and its ecosystem are research software under active development and are **not licensed for clinical use**.
 
 ---
 
 ## Tool inventory
 
-| Tool | Description | Key inputs | Outputs |
+| Tool name | Description | Inputs | Outputs |
 |---|---|---|---|
-| `skull_strip` | Brain extraction using HD-BET | `input_path`, `device` | `brain_path` |
+| `skull_strip` | Brain extraction using HD-BET. Ask the user which device to use (`cpu`/`cuda`/`mps`) before calling; defaults to `cpu` | `input_path: Path`, `output_dir: Path \| None = None`, `device: str = "cpu"` | `{"brain_path": "...", "input_path": "...", "device": "...", "_render": "..."}` |
+| `register_to_template` | Normalise a structural image to MNI152NLin2009cAsym (or a custom template); template downloaded on first use. Selects the brain-extracted template variant when `skull_stripped=True`. | `input_path: Path`, `transform_type: "rigid"\|"similarity"\|"affine"\|"synquick"\|"syn"`, `output_dir: Path \| None = None`, `template_path: Path \| None = None`, `skull_stripped: bool = False` | `{"registered_path": "...", "forward_transforms": [...], "inverse_transforms": [...], "inverse_invert_flags": [...], "template_path": "...", "transform_type": "...", "_render": "..."}` |
+| `coregister` | Align multiple same-subject images to a common reference (e.g. FLAIR, T2w, b0 → T1w). Ask the user which transform type to use before calling | `fixed_path: Path`, `moving_paths: list[Path]`, `transform_type: "rigid"\|"similarity"\|"affine"\|"synquick"\|"syn"`, `output_dir: Path \| None = None` | `{"registered_paths": [...], "transform_prefixes": [...], "forward_transforms_list": [[...]], "inverse_transforms_list": [[...]], "inverse_invert_flags_list": [[...]], "_render": "..."}` |
+| `apply_transform` | Apply a pre-computed ANTs transform to additional images (brain masks, lesion maps, parcellations) without re-running registration | `input_path: Path`, `reference_path: Path`, `transforms: list[str]`, `output_dir: Path \| None = None`, `interpolation: "Linear"\|"NearestNeighbor"\|"BSpline" = "Linear"`, `output_space: str \| None = None`, `invert_flags: list[bool] \| None = None` | `{"output_path": "...", "_render": "..."}` |
+
+## Skill inventory
+
+Skills are SKILL.md files the agent loads on demand to follow multi-step workflows. They are bundled under `src/medmcp_neuro/skills/` and discovered automatically via `server_config()`.
+
+| Skill name | Description |
+|---|---|
+| `registration` | Workflow for template normalisation and within-subject coregistration. Instructs the agent to present all transform options and wait for the user to choose; covers native↔template warping, the two-step multi-contrast workflow (coregister→apply_transform), transform composition, and label interpolation. |
 
 ---
 
-## Model / weights provenance
+### Model / weights provenance
 
 | Tool | Model | Source | License |
 |---|---|---|---|
 | `skull_strip` | HD-BET (nnU-Net-based brain extraction) | Downloaded automatically on first run via `hd-bet` to `~/.hd_bet_data/` | [Apache 2.0](https://github.com/MIC-DKFZ/HD-BET/blob/master/LICENSE) |
 
----
+### Hardware requirements
 
-## Hardware requirements
-
-| Tool | CPU | GPU |
-|---|---|---|
-| `skull_strip` | Supported (~2–3 min per volume, TTA disabled automatically) | `device="cuda"` or `device="mps"` (~30 s, TTA enabled) |
-
----
-
-## What's in the box
-
-| Area | Files | Notes |
-|---|---|---|
-| Build / deps | `pyproject.toml`, `.python-version` | uv-managed, Python ≥3.12, `mcp>=1.0`, `hd-bet` |
-| MCP server | `src/medmcp_neuro/server.py` | FastMCP over stdio; `server_config()` enables autodiscovery |
-| Tools | `src/medmcp_neuro/tools/` | One file per tool; shared helpers in `_neuro.py` |
-| Dev workflow | `justfile`, `.pre-commit-config.yaml` | `just setup`, `just check`, `just fix` |
-| CI | `.github/workflows/ci.yml` | Lint, format-check, pyright (strict), pytest on py3.12 / 3.13 |
+`skull_strip` supports CPU (~2–3 min per volume, TTA disabled) and GPU (`device="cuda"` for NVIDIA, `device="mps"` for Apple Silicon, ~30 s). `register_to_template`, `coregister`, and `apply_transform` call ANTsPy, which is installed automatically as a package dependency and is CPU-only; registration time varies with image size and hardware — `syn` is significantly slower than the other transform types.
 
 ---
 
@@ -52,15 +47,19 @@ just fix       # auto-fix lint and format
 just test      # pytest only
 ```
 
-## Install and activate
+### Install for local agent use
 
 ```bash
-uv tool install .        # local dev
-# or
-uv tool install medmcp-neuro   # from PyPI once published
+uv tool install --editable .
 ```
 
-The package registers itself via the `[medmcp.stacks]` entry point. The local agent discovers it automatically on the next session — no manual config needed.
+The package registers itself via the `[medmcp.stacks]` entry point. The local agent autodiscovers it on the next session — no manual config needed.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Short version: fork, `just setup`, `just check`, open a PR against `main`.
 
 ## License
 

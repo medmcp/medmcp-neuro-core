@@ -1,7 +1,9 @@
 """HD-BET inference subprocess entry point, isolated from MCP stdio pipes.
 
-Invoked by skull_strip via subprocess.run with stdin=DEVNULL so that none of
-the MCP file descriptors are inherited by nnU-Net's multiprocessing workers.
+Invoked by skull_strip via subprocess.run with capture_output=True so that
+none of the MCP file descriptors are inherited by nnU-Net's multiprocessing
+workers.  The result dict is written to a tempfile path supplied via stdin
+rather than stdout, to avoid contamination from nnU-Net's own output.
 """
 
 import json
@@ -41,6 +43,8 @@ def _run(device: str, use_tta: bool, input_path: str, stem: str, brain_path: str
 
 if __name__ == "__main__":
     _args: dict[str, object] = json.loads(sys.stdin.read())
+    _result_path = str(_args["result_path"])
+
     try:
         _run(
             device=str(_args["device"]),
@@ -49,7 +53,12 @@ if __name__ == "__main__":
             stem=str(_args["stem"]),
             brain_path=str(_args["brain_path"]),
         )
-        print(json.dumps({"ok": True}))
+        _result: dict[str, object] = {"ok": True}
     except Exception as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}))
+        _result = {"ok": False, "error": str(exc)}
+
+    with open(_result_path, "w") as f:
+        json.dump(_result, f)
+
+    if not _result.get("ok"):
         sys.exit(1)

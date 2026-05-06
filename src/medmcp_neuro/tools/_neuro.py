@@ -6,6 +6,16 @@ import sys
 from pathlib import Path
 
 
+def nii_stem(path: Path) -> str:
+    """Return the NIfTI stem, stripping .nii.gz or .nii suffix."""
+    name = path.name
+    if name.endswith(".nii.gz"):
+        return name[:-7]
+    if name.endswith(".nii"):
+        return name[:-4]
+    return path.stem
+
+
 def detect_devices() -> list[str]:
     """Return available compute devices, always including 'cpu'.
 
