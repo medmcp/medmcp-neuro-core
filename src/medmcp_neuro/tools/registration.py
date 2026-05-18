@@ -28,7 +28,7 @@ TransformType = Literal["rigid", "similarity", "affine", "synquick", "syn"]
 
 
 class RegisterToTemplateResult(TypedDict):
-    """Successful template-space normalisation result."""
+    """Successful template-space normalization result."""
 
     registered_path: str
     transform_prefix: str
@@ -140,7 +140,7 @@ def register_to_template(
     for parameters or make any decisions before the skill is loaded — it defines what
     to ask, in what order, and what to confirm.
 
-    Normalises a 3-D structural volume to a standard-space template using ANTsPy
+    Normalizes a 3-D structural volume to a standard-space template using ANTsPy
     (the Python interface to ANTs — installed automatically as a package dependency,
     no separate binary install required). On first use the MNI152NLin2009cAsym 1 mm
     template is downloaded from the templateflow S3 bucket and cached in

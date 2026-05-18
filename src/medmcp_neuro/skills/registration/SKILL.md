@@ -51,7 +51,7 @@ inconsistent deformations, and makes native-space analysis harder.
 ## Gotchas
 
 - For label images (brain masks, atlas parcellations), use `interpolation="NearestNeighbor"`
-  in `apply_transform` to avoid interpolation artefacts on integer labels.
+  in `apply_transform` to avoid interpolation artifacts on integer labels.
 - When applying transforms where the reference is the MNI template, pass
   `output_space="MNI152NLin2009cAsym"` explicitly so the BIDS output filename is correct.
 - Transforms from `register_to_template` and `coregister` can be composed: concatenate

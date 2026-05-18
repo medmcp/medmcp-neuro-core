@@ -9,9 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `segment_brain` and `list_brain_segmentation_labels` tools backed by FreeSurfer's SynthSeg; contrast-agnostic segmentation of 33 or 95 brain structures with per-structure volume CSV output
 - `register_to_template`, `coregister`, and `apply_transform` tools backed by ANTsPy
 - MNI152NLin2009cAsym 1 mm template auto-download with local cache; brain-extracted variant selected via `skull_stripped` parameter
-- `registration` SKILL.md with step-by-step workflow for template normalisation and within-subject coregistration
+- `registration` SKILL.md with step-by-step workflow for template normalization and within-subject coregistration
 - `skull_strip` gains `output_dir` parameter (consistent with other tools)
 - Initial template scaffold: pyproject + uv, ruff + pyright strict, pytest, just, pre-commit
 - GitHub Actions CI workflow (lint, format-check, pyright, pytest on py3.12 / 3.13)
