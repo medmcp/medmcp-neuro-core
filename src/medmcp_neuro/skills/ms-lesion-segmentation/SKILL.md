@@ -1,5 +1,5 @@
 ---
-name: lesion-segmentation
+name: ms-lesion-segmentation
 description: Workflow for segmenting white-matter (MS) lesions from paired T1w + FLAIR images using LST-AI, including the recommended pre-skull-stripping path and warping lesion maps into template space
 ---
 

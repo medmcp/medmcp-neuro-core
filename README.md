@@ -24,7 +24,7 @@ Skills are SKILL.md files the agent loads on demand to follow multi-step workflo
 | Skill name | Description |
 |---|---|
 | `registration` | Workflow for template normalisation and within-subject coregistration. Instructs the agent to present all transform options and wait for the user to choose; covers native↔template warping, the two-step multi-contrast workflow (coregister→apply_transform), transform composition, and label interpolation. |
-| `lesion-segmentation` | Workflow for `segment_ms_lesions`. Covers the paired T1w + FLAIR requirement, the recommended pre-skull-stripping path (run `skull_strip` on both, then `skull_stripped=True`), device choice, and warping the resulting lesion mask into MNI with `apply_transform` (NearestNeighbor). |
+| `ms-lesion-segmentation` | Workflow for `segment_ms_lesions`. Covers the paired T1w + FLAIR requirement, the recommended pre-skull-stripping path (run `skull_strip` on both, then `skull_stripped=True`), device choice, and warping the resulting lesion mask into MNI with `apply_transform` (NearestNeighbor). |
 
 ---
 
