@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `segment_lesions` tool: white-matter (MS) lesion segmentation from paired T1w + FLAIR via LST-AI, run out of process through a native `lst` venv (preferred) or the `jqmcginnis/lst-ai` Docker image (fallback); backend auto-selects and is overridable via `backend=` or `$MEDMCP_LST_AI_BACKEND`. The `greedy` binary is downloaded on first native use.
+- `lesion-segmentation` SKILL.md covering the pre-skull-stripping path (`skull_strip` both inputs → `skull_stripped=True`), device choice, backend selection, and warping lesion masks into MNI
 - `register_to_template`, `coregister`, and `apply_transform` tools backed by ANTsPy
 - MNI152NLin2009cAsym 1 mm template auto-download with local cache; brain-extracted variant selected via `skull_stripped` parameter
 - `registration` SKILL.md with step-by-step workflow for template normalisation and within-subject coregistration
