@@ -1,0 +1,20 @@
+# LST-AI sidecar environment specification.
+#
+# LST-AI cannot live in the medmcp-neuro venv: it pins torch<=2.1, tensorflow<2.16
+# and numpy<1.24.4, none of which have wheels for Python >=3.12 (this package's
+# floor). It is therefore installed into a dedicated Python 3.11 venv by
+# `just lst-ai-setup`, and segment_ms_lesions shells out to its `lst` console
+# script via $MEDMCP_LST_AI_BIN.
+#
+# Both sources are pinned to exact commits for reproducibility. Recompile the
+# lockfile with:
+#   uv pip compile lst-ai/requirements.in -o lst-ai/requirements.txt --python-version 3.11
+
+# LST-AI pinned to the jqm/old_hd_bet branch — the exact branch LST-AI's official
+# docker image is built from, whose HD-BET mask handling matches HD-BET 1.0 below.
+# (The jqm/docker branch expects a different HD-BET and crashes on the mask move.)
+LST_AI @ git+https://github.com/CompImg/LST-AI@4d930aa4cb9efbc31b060668f46998da9a5b77c7
+
+# HD-BET is NOT declared as a dependency by LST-AI's setup.py, so it must be added
+# explicitly. Pin the same commit (HD-BET 1.0) LST-AI's official docker image uses.
+HD_BET @ git+https://github.com/MIC-DKFZ/HD-BET@ae160681324d524db3578e4135bf781f8206e146

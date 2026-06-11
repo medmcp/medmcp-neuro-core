@@ -140,9 +140,13 @@ def segment_ms_lesions(
     nii_before = _nii_set(out_dir)
     csv_before = _csv_set(out_dir)
 
-    # LST-AI shells out to `greedy`; make sure it is discoverable on PATH.
+    # LST-AI shells out to bare `hd-bet` and `greedy`, resolved via PATH. Put the
+    # sidecar venv's bin FIRST so its (classic, pinned) HD-BET is used rather than
+    # any host HD-BET, then the greedy cache dir.
     env = os.environ.copy()
-    env["PATH"] = f"{Path(greedy).parent}{os.pathsep}{env.get('PATH', '')}"
+    env["PATH"] = os.pathsep.join(
+        [str(Path(lst_bin).parent), str(Path(greedy).parent), env.get("PATH", "")]
+    )
 
     with tempfile.TemporaryDirectory(prefix="lst_temp_") as temp_dir:
         cmd = _run_lstai.build_command(

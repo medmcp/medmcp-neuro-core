@@ -30,6 +30,20 @@ setup: install_uv
     uv sync
     uv run pre-commit install
 
+# Build the dedicated LST-AI sidecar venv used by segment_ms_lesions
+lst-ai-setup: install_uv
+    #!/usr/bin/env bash
+    set -euo pipefail
+    VENV="${MEDMCP_LST_AI_VENV:-$HOME/.medmcp_neuro/lst-ai-venv}"
+    echo "Creating LST-AI sidecar venv at $VENV (Python 3.11)…"
+    uv venv --python 3.11 "$VENV"
+    echo "Installing pinned LST-AI + HD-BET from lst-ai/requirements.txt…"
+    uv pip install --python "$VENV/bin/python" -r lst-ai/requirements.txt
+    echo
+    echo "Done. Point the tool at the sidecar 'lst' by exporting:"
+    echo "  export MEDMCP_LST_AI_BIN=$VENV/bin/lst"
+    echo "(the 'greedy' binary is fetched automatically on first run)"
+
 # Run every CI check locally (lint, format, typecheck, tests)
 check: lint format-check typecheck test
 

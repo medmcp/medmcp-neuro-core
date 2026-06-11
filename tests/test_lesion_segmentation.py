@@ -167,6 +167,25 @@ def test_run_passes_stripped_when_requested(tmp_path: Path) -> None:
     assert "--stripped" in mock_run.call_args[0][0]
 
 
+def test_run_prepends_sidecar_bin_to_path(tmp_path: Path) -> None:
+    """The sidecar venv's bin dir is first on PATH so LST-AI's bare hd-bet resolves there."""
+    import os
+
+    t1 = tmp_path / "t1.nii.gz"
+    flair = tmp_path / "flair.nii.gz"
+    t1.touch()
+    flair.touch()
+    with (
+        patch.object(_run_lstai, "native_lst_bin", return_value="/opt/lstvenv/bin/lst"),
+        patch.object(_run_lstai, "ensure_greedy", return_value="/cache/bin/greedy"),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_run_writes_outputs) as mock_run,
+    ):
+        segment_ms_lesions(t1, flair, output_dir=tmp_path / "out")
+    path_entries = mock_run.call_args.kwargs["env"]["PATH"].split(os.pathsep)
+    assert path_entries[0] == "/opt/lstvenv/bin"
+    assert "/cache/bin" in path_entries
+
+
 def test_run_render_has_next_action(tmp_path: Path) -> None:
     """_render includes a NEXT ACTION directive."""
     result = _run(tmp_path)
