@@ -8,20 +8,19 @@ from pathlib import Path
 from typing import TypedDict
 
 from medmcp_neuro.tools import _run_lstai
-from medmcp_neuro.tools._run_lstai import Backend
 
 _TIMEOUT = 7200  # LST-AI on CPU can run for well over an hour
 
 
-class SegmentLesionsResult(TypedDict):
+class SegmentMSLesionsResult(TypedDict):
     """Successful lesion-segmentation result."""
 
     lesion_mask_path: str
     annotated_path: str | None
     output_files: list[str]
+    stats_files: list[str]
     t1_path: str
     flair_path: str
-    backend: str
     device: str
     skull_stripped: bool
     _render: str
@@ -34,50 +33,74 @@ def _nii_set(directory: Path) -> set[Path]:
     return {p for p in directory.iterdir() if p.name.endswith((".nii", ".nii.gz"))}
 
 
+def _csv_set(directory: Path) -> set[Path]:
+    """Return the set of CSV files currently in ``directory`` (non-recursive)."""
+    if not directory.exists():
+        return set()
+    return {p for p in directory.iterdir() if p.name.endswith(".csv")}
+
+
+def _is_annotated(name: str) -> bool:
+    """True if the filename is LST-AI's region-annotated segmentation."""
+    low = name.lower()
+    return "annotated" in low or "annot" in low or "label" in low
+
+
 def _pick_segmentation(files: list[Path]) -> Path | None:
-    """Heuristically pick the primary binary lesion mask from produced files."""
-    segs = [p for p in files if "seg" in p.name.lower() and "label" not in p.name.lower()]
+    """Pick the primary binary lesion mask from LST-AI's outputs.
+
+    LST-AI writes ``space-flair_seg-lst.nii.gz`` (binary mask) and
+    ``space-flair_desc-annotated_seg-lst.nii.gz`` (annotated) — both contain
+    ``seg``, so the mask is the ``seg-lst`` file that is *not* annotated and not
+    a probability map (``_prob``).
+    """
+    segs = [
+        p
+        for p in files
+        if "seg-lst" in p.name.lower()
+        and not _is_annotated(p.name)
+        and "_prob" not in p.name.lower()
+    ]
     if segs:
         return segs[0]
-    return files[0] if files else None
+    # Fallback for unexpected naming: any non-annotated NIfTI.
+    plain = [p for p in files if not _is_annotated(p.name)]
+    return plain[0] if plain else (files[0] if files else None)
 
 
 def _pick_annotated(files: list[Path]) -> Path | None:
-    """Pick the region-annotated (labelled) segmentation, if LST-AI produced one."""
-    labelled = [p for p in files if "label" in p.name.lower() or "annot" in p.name.lower()]
-    return labelled[0] if labelled else None
+    """Pick the region-annotated segmentation, if LST-AI produced one."""
+    annotated = [p for p in files if _is_annotated(p.name)]
+    return annotated[0] if annotated else None
 
 
-def segment_lesions(
+def segment_ms_lesions(
     t1_path: Path,
     flair_path: Path,
     output_dir: Path | None = None,
     device: str = "cpu",
     gpu_id: int = 0,
     skull_stripped: bool = False,
-    backend: Backend | None = None,
-) -> SegmentLesionsResult:
+) -> SegmentMSLesionsResult:
     """Segment white-matter (MS) lesions from paired T1w + FLAIR images using LST-AI.
+
+    Requires **both** a T1w **and** a FLAIR of the same subject — it is not a
+    single-contrast tool. If only one contrast is available, do not call this;
+    tell the user LST-AI cannot run.
 
     LST-AI registers the FLAIR to the T1w and into MNI space, runs an ensemble
     segmentation network, and (unless restricted) annotates lesions by region.
-    It is run as an external program through one of two interchangeable backends:
-
-    - ``"native"`` — the ``lst`` console script from a dedicated LST-AI virtualenv
-      (located via ``$MEDMCP_LST_AI_BIN`` or PATH). Preferred: faster, no daemon,
-      and it reuses any GPU directly. The ``greedy`` binary is downloaded once on
-      first use if not already on PATH.
-    - ``"docker"`` — the ``jqmcginnis/lst-ai`` image (greedy + HD-BET baked in).
-      Used as a fallback when the native install is absent. Requires a running
-      Docker daemon (and the NVIDIA container runtime for GPU).
-
-    When ``backend`` is None the native backend is used if available, otherwise
-    docker.
+    It is run out of process via its ``lst`` console script, which must be
+    installed in its own virtualenv — LST-AI pins an old HD-BET that conflicts
+    with this package's versions, so it is intentionally not a dependency here.
+    Point ``$MEDMCP_LST_AI_BIN`` at that ``lst`` (or have it on PATH). The
+    ``greedy`` registration binary is downloaded once on first use if absent.
 
     Skull stripping: LST-AI normally strips skulls itself with its own pinned
     HD-BET. If you have already run this package's ``skull_strip`` tool on **both**
-    the T1w and FLAIR, pass ``skull_stripped=True`` so LST-AI skips that step —
-    this avoids the bundled HD-BET and is the recommended path in this ecosystem.
+    the T1w and FLAIR, pass ``skull_stripped=True`` so LST-AI skips that step
+    (it passes ``--stripped``) — this avoids the bundled HD-BET and is the
+    recommended path in this ecosystem.
 
     Before calling, ask the user which compute device to use:
     - ``"cpu"`` — always available, slow (often >1 h).
@@ -91,16 +114,15 @@ def segment_lesions(
         device: ``"cpu"`` (default) or ``"cuda"``.
         gpu_id: GPU index used when ``device="cuda"``. Defaults to ``0``.
         skull_stripped: Set True only when both inputs are already brain-extracted;
-            passes ``--skull-stripped`` to LST-AI.
-        backend: ``"native"``, ``"docker"``, or None to auto-select.
+            passes ``--stripped`` to LST-AI.
 
     Returns:
-        ``SegmentLesionsResult`` with the lesion mask path, the region-annotated
-        map (if produced), and the full list of files LST-AI wrote.
+        ``SegmentMSLesionsResult`` with the lesion mask path, the region-annotated
+        map (if produced), and the full lists of NIfTI and CSV files LST-AI wrote.
 
     Raises:
         FileNotFoundError: If ``t1_path`` or ``flair_path`` does not exist.
-        RuntimeError: If no backend is available or LST-AI fails.
+        RuntimeError: If LST-AI is not installed or the run fails.
         ValueError: If ``device`` is not ``"cpu"`` or ``"cuda"``.
     """
     if not t1_path.exists():
@@ -111,48 +133,37 @@ def segment_lesions(
     out_dir = output_dir if output_dir is not None else t1_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    selected = _run_lstai.resolve_backend(backend)
+    lst_bin = _run_lstai.require_lst_bin()
     dev_flag = _run_lstai.device_flag(device, gpu_id)
+    greedy = _run_lstai.ensure_greedy()
 
-    before = _nii_set(out_dir)
+    nii_before = _nii_set(out_dir)
+    csv_before = _csv_set(out_dir)
+
+    # LST-AI shells out to `greedy`; make sure it is discoverable on PATH.
     env = os.environ.copy()
+    env["PATH"] = f"{Path(greedy).parent}{os.pathsep}{env.get('PATH', '')}"
 
-    if selected == "native":
-        lst_bin = _run_lstai.native_lst_bin()
-        assert lst_bin is not None  # guaranteed by resolve_backend
-        greedy = _run_lstai.ensure_greedy()
-        # LST-AI shells out to `greedy`; make sure it is discoverable on PATH.
-        env["PATH"] = f"{Path(greedy).parent}{os.pathsep}{env.get('PATH', '')}"
-        with tempfile.TemporaryDirectory(prefix="lst_temp_") as temp_dir:
-            cmd = _run_lstai.build_native_command(
-                lst_bin=lst_bin,
-                t1_path=t1_path,
-                flair_path=flair_path,
-                output_dir=out_dir,
-                temp_dir=Path(temp_dir),
-                device=dev_flag,
-                skull_stripped=skull_stripped,
-                extra_args=[],
-            )
-            _invoke(cmd, env=env, label="LST-AI (native)")
-    else:
-        cmd = _run_lstai.build_docker_command(
-            image=_run_lstai.docker_image(),
+    with tempfile.TemporaryDirectory(prefix="lst_temp_") as temp_dir:
+        cmd = _run_lstai.build_command(
+            lst_bin=lst_bin,
             t1_path=t1_path,
             flair_path=flair_path,
             output_dir=out_dir,
+            temp_dir=Path(temp_dir),
             device=dev_flag,
             skull_stripped=skull_stripped,
             extra_args=[],
         )
-        _invoke(cmd, env=env, label="LST-AI (docker)")
+        _invoke(cmd, env=env)
 
-    produced = sorted(_nii_set(out_dir) - before)
+    produced = sorted(_nii_set(out_dir) - nii_before)
     if not produced:
         raise RuntimeError(f"LST-AI completed but no new NIfTI outputs were found in {out_dir}.")
 
     seg = _pick_segmentation(produced)
     annotated = _pick_annotated(produced)
+    stats = sorted(_csv_set(out_dir) - csv_before)
     if seg is None:
         raise RuntimeError(f"Could not identify a lesion segmentation among: {produced}")
 
@@ -160,9 +171,9 @@ def segment_lesions(
         "lesion_mask_path": str(seg),
         "annotated_path": str(annotated) if annotated else None,
         "output_files": [str(p) for p in produced],
+        "stats_files": [str(p) for p in stats],
         "t1_path": str(t1_path),
         "flair_path": str(flair_path),
-        "backend": selected,
         "device": device,
         "skull_stripped": skull_stripped,
         "_render": (
@@ -170,7 +181,7 @@ def segment_lesions(
             "Report the lesion segmentation result as a compact key-value list:\n"
             "  Lesion mask: <lesion_mask_path>\n"
             "  Annotated:   <annotated_path>   (omit this line if null)\n"
-            "  Backend:     <backend>\n"
+            "  Stats:       <stats_files joined by ', '>   (omit if empty)\n"
             "  Device:      <device>\n"
             "Substitute values from the result dict. Omit internal keys.\n"
             "NEXT ACTION: Tell the user the lesion mask path. If a T1w→template "
@@ -181,9 +192,9 @@ def segment_lesions(
     }
 
 
-def _invoke(cmd: list[str], *, env: dict[str, str], label: str) -> None:
-    """Run an LST-AI backend command, streaming stderr and raising on failure."""
-    print(f"[medmcp-neuro] segment_lesions: starting {label} …", file=sys.stderr, flush=True)
+def _invoke(cmd: list[str], *, env: dict[str, str]) -> None:
+    """Run the LST-AI command, streaming stderr and raising on failure."""
+    print("[medmcp-neuro] segment_ms_lesions: starting LST-AI …", file=sys.stderr, flush=True)
     proc = subprocess.run(
         cmd,
         capture_output=True,
@@ -196,8 +207,8 @@ def _invoke(cmd: list[str], *, env: dict[str, str], label: str) -> None:
         sys.stderr.flush()
     if proc.returncode != 0:
         raise RuntimeError(
-            f"{label} failed (exit {proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}"
+            f"LST-AI failed (exit {proc.returncode}): {proc.stderr.strip() or proc.stdout.strip()}"
         )
 
 
-__all__ = ["SegmentLesionsResult", "segment_lesions"]
+__all__ = ["SegmentMSLesionsResult", "segment_ms_lesions"]

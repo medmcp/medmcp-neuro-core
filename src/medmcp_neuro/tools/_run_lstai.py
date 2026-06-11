@@ -1,114 +1,55 @@
-"""Backend dispatch for LST-AI lesion segmentation.
+"""Helpers for invoking LST-AI lesion segmentation.
 
-LST-AI is heavyweight: it pins a specific HD-BET commit and depends on the
+LST-AI is heavyweight: it pins a specific (old) HD-BET commit and depends on the
 native ``greedy`` registration binary. Installing it into this package's
 environment would clash with our own torch / HD-BET / ANTsPy versions, so it is
-**never imported in-process**. Instead it is invoked as an external program
-through one of two backends:
+**never imported in-process**. Instead it lives in its own dedicated virtualenv
+and is invoked as an external program through its ``lst`` console script — the
+same subprocess pattern the other tools use, just pointed at a sibling venv.
 
-* ``native`` — the ``lst`` console script from a dedicated LST-AI virtualenv,
-  located via ``$MEDMCP_LST_AI_BIN`` or PATH. The ``greedy`` binary is located
-  via ``$MEDMCP_GREEDY_BIN`` or PATH, or downloaded once to the cache.
-* ``docker`` — the ``jqmcginnis/lst-ai`` image, which bundles greedy + HD-BET.
-
-This module only resolves the backend and builds the command line. The
-side-effecting ``subprocess.run`` and output discovery live in
+This module locates the ``lst`` and ``greedy`` binaries and builds the command
+line. The side-effecting ``subprocess.run`` and output discovery live in
 ``lesion_segmentation.py`` so they remain easy to mock in tests.
 """
 
-import shutil
 import sys
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Literal
 
 from medmcp_neuro.tools._neuro import find_binary
 
-Backend = Literal["native", "docker"]
-
-DEFAULT_IMAGE = "jqmcginnis/lst-ai:v1.2.0"
-# Prebuilt greedy binary shipped with the LST-AI release; matches the version
-# the native pipeline expects. Overridable via $MEDMCP_GREEDY_BIN.
+# Prebuilt greedy binary shipped with the LST-AI release. Overridable via
+# $MEDMCP_GREEDY_BIN.
 _GREEDY_RELEASE_URL = "https://github.com/CompImg/LST-AI/releases/download/v1.0.0/greedy"
 _BIN_CACHE_DIR = Path.home() / ".medmcp_neuro" / "bin"
 
 
 def native_lst_bin() -> str | None:
-    """Return the ``lst`` console-script path, or None if not installed."""
+    """Return the ``lst`` console-script path, or None if not installed.
+
+    Looks at ``$MEDMCP_LST_AI_BIN`` first, then PATH, then the running
+    interpreter's bin directory.
+    """
     return find_binary("lst", "MEDMCP_LST_AI_BIN")
 
 
-def docker_image() -> str:
-    """Return the LST-AI docker image, overridable via ``$MEDMCP_LST_AI_IMAGE``."""
-    import os
-
-    return os.environ.get("MEDMCP_LST_AI_IMAGE", DEFAULT_IMAGE)
-
-
-def docker_available() -> bool:
-    """Return True if a ``docker`` executable is on PATH."""
-    return shutil.which("docker") is not None
+def require_lst_bin() -> str:
+    """Return the ``lst`` console-script path or raise with install guidance."""
+    found = native_lst_bin()
+    if found is None:
+        raise RuntimeError(_install_msg())
+    return found
 
 
-def resolve_backend(requested: Backend | None) -> Backend:
-    """Choose the LST-AI backend.
-
-    Args:
-        requested: Explicit backend, or None to auto-select. When None, the
-            ``$MEDMCP_LST_AI_BACKEND`` env var (``native``/``docker``) is honoured
-            if set; otherwise native is preferred with docker as fallback.
-
-    Returns:
-        The selected backend.
-
-    Raises:
-        RuntimeError: If the requested backend is unavailable, or if neither
-            backend can be found during auto-selection. The message includes
-            install guidance.
-        ValueError: If ``$MEDMCP_LST_AI_BACKEND`` is set to an unknown value.
-    """
-    import os
-
-    if requested is None:
-        env_backend = os.environ.get("MEDMCP_LST_AI_BACKEND")
-        if env_backend:
-            if env_backend not in ("native", "docker"):
-                raise ValueError(
-                    f"MEDMCP_LST_AI_BACKEND must be 'native' or 'docker', got {env_backend!r}."
-                )
-            requested = env_backend  # type: ignore[assignment]
-
-    if requested == "native":
-        if native_lst_bin() is None:
-            raise RuntimeError(_native_missing_msg())
-        return "native"
-    if requested == "docker":
-        if not docker_available():
-            raise RuntimeError(
-                "Docker backend requested but the 'docker' executable is not on PATH."
-            )
-        return "docker"
-
-    # auto: prefer native, fall back to docker
-    if native_lst_bin() is not None:
-        return "native"
-    if docker_available():
-        return "docker"
-    raise RuntimeError(
-        "LST-AI is not available via either backend.\n" + _native_missing_msg() + "\n"
-        "Alternatively install Docker so the 'jqmcginnis/lst-ai' image can be used."
-    )
-
-
-def _native_missing_msg() -> str:
+def _install_msg() -> str:
     return (
-        "The 'lst' console script was not found. Install LST-AI into a dedicated\n"
-        "virtualenv (kept separate from this package to avoid dependency conflicts):\n"
+        "LST-AI is not installed. Install it into a dedicated virtualenv (kept\n"
+        "separate from this package to avoid HD-BET / torch version conflicts):\n"
         "  python3 -m venv ~/.medmcp_neuro/lst-ai-venv\n"
         "  source ~/.medmcp_neuro/lst-ai-venv/bin/activate\n"
         "  pip install git+https://github.com/CompImg/LST-AI\n"
-        "then point this tool at it with:\n"
+        "then point this tool at it:\n"
         "  export MEDMCP_LST_AI_BIN=~/.medmcp_neuro/lst-ai-venv/bin/lst"
     )
 
@@ -172,7 +113,7 @@ def ensure_greedy() -> str:
     return str(cached)
 
 
-def build_native_command(
+def build_command(
     *,
     lst_bin: str,
     t1_path: Path,
@@ -183,7 +124,11 @@ def build_native_command(
     skull_stripped: bool,
     extra_args: list[str],
 ) -> list[str]:
-    """Build the ``lst`` command line for the native backend."""
+    """Build the ``lst`` command line.
+
+    Note: LST-AI's already-skull-stripped flag is ``--stripped`` (not
+    ``--skull-stripped``, which appears in some older docs).
+    """
     cmd = [
         lst_bin,
         "--t1",
@@ -198,54 +143,6 @@ def build_native_command(
         device,
     ]
     if skull_stripped:
-        cmd.append("--skull-stripped")
-    cmd.extend(extra_args)
-    return cmd
-
-
-# Container mount targets used by the docker backend.
-_C_T1_DIR = "/data/t1in"
-_C_FLAIR_DIR = "/data/flairin"
-_C_OUT_DIR = "/data/out"
-
-
-def build_docker_command(
-    *,
-    image: str,
-    t1_path: Path,
-    flair_path: Path,
-    output_dir: Path,
-    device: str,
-    skull_stripped: bool,
-    extra_args: list[str],
-) -> list[str]:
-    """Build the ``docker run`` command line for the docker backend.
-
-    Each input's parent directory is bind-mounted read-only; the output
-    directory is mounted read-write. Paths passed to LST-AI are rewritten to
-    their in-container locations.
-    """
-    cmd = ["docker", "run", "--rm"]
-    if device != "cpu":
-        cmd += ["--gpus", "all"]
-    cmd += [
-        "-v",
-        f"{t1_path.parent}:{_C_T1_DIR}:ro",
-        "-v",
-        f"{flair_path.parent}:{_C_FLAIR_DIR}:ro",
-        "-v",
-        f"{output_dir}:{_C_OUT_DIR}",
-        image,
-        "--t1",
-        f"{_C_T1_DIR}/{t1_path.name}",
-        "--flair",
-        f"{_C_FLAIR_DIR}/{flair_path.name}",
-        "--output",
-        _C_OUT_DIR,
-        "--device",
-        device,
-    ]
-    if skull_stripped:
-        cmd.append("--skull-stripped")
+        cmd.append("--stripped")
     cmd.extend(extra_args)
     return cmd

@@ -5,10 +5,11 @@ description: Workflow for segmenting white-matter (MS) lesions from paired T1w +
 
 # Lesion segmentation workflow
 
-`segment_lesions` runs LST-AI, which needs **both** a T1w and a FLAIR image of the
-same subject. LST-AI is run as an external program via one of two backends
-(native `lst` venv preferred, `jqmcginnis/lst-ai` docker image as fallback);
-the tool auto-selects unless the user names one.
+`segment_ms_lesions` runs LST-AI, which needs **both** a T1w and a FLAIR image of the
+same subject. LST-AI is run out of process via its `lst` console script, which
+must be installed in its own virtualenv (it is not a dependency of this package —
+it pins an old HD-BET that would conflict). Point `$MEDMCP_LST_AI_BIN` at that
+`lst`, or have it on PATH.
 
 ## Steps
 
@@ -18,7 +19,7 @@ the tool auto-selects unless the user names one.
 2. **Decide on skull stripping** — this matters for both quality and reliability:
 
    - **Recommended:** run this package's `skull_strip` tool on **both** the T1w and
-     the FLAIR first, then call `segment_lesions(..., skull_stripped=True)`. This
+     the FLAIR first, then call `segment_ms_lesions(..., skull_stripped=True)`. This
      reuses the HD-BET already in this stack and skips LST-AI's own pinned HD-BET.
    - If the user prefers, pass raw (non-stripped) images and let LST-AI strip them
      internally (`skull_stripped=False`, the default).
@@ -32,7 +33,7 @@ the tool auto-selects unless the user names one.
    - `"cuda"` — NVIDIA GPU (uses `gpu_id`, default 0), much faster.
    LST-AI has no Apple-Silicon (MPS) path; do not offer `mps`.
 
-4. **Run `segment_lesions`** with the confirmed `device` and `skull_stripped` flag.
+4. **Run `segment_ms_lesions`** with the confirmed `device` and `skull_stripped` flag.
    Report the lesion mask path (and the region-annotated map, if produced).
 
 5. **Optional — warp the lesion map into template space.** If a T1w→template
@@ -43,20 +44,13 @@ the tool auto-selects unless the user names one.
    - set `output_space="MNI152NLin2009cAsym"` so the BIDS filename is correct.
    See the `registration` skill for the transform-composition details.
 
-## Backend selection
-
-- Leave `backend=None` to auto-select. The native backend is used when the `lst`
-  console script is discoverable (`$MEDMCP_LST_AI_BIN` or PATH); otherwise docker.
-- Pass `backend="docker"` to force the container path (needs a running Docker
-  daemon, plus the NVIDIA container runtime for GPU).
-- If neither backend is available the tool raises with install guidance — relay
-  that to the user rather than guessing at a fix.
-
 ## Gotchas
 
 - LST-AI requires same-subject T1w **and** FLAIR; it is not a single-contrast tool.
+- If `lst` is not installed the tool raises with venv install guidance — relay
+  that to the user rather than guessing at a fix.
 - The lesion mask is a binary label image — always use `NearestNeighbor`
   interpolation when resampling or warping it.
-- The native backend downloads the `greedy` binary on first use (cached under
+- The `greedy` binary is downloaded on first use (cached under
   `~/.medmcp_neuro/bin/`); the first run may pause while that happens.
 - On CPU the run can take well over an hour. Set expectations before starting.
