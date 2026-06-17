@@ -31,6 +31,11 @@ dependencies = [
     "antspyx>=0.5",
     "hd-bet>=2.0.1",
     "mcp>=1.0",
+    # torch/torchvision are pulled transitively by hd-bet; declared directly so the
+    # CUDA 12.8 index pin below ([tool.uv.sources]) applies (uv sources only bind
+    # direct deps). Keeps the GPU image on cu128 — see [tool.uv] note.
+    "torch",
+    "torchvision",
     # "medmcp-dicom>=0.1",  # uncomment once medmcp-dicom is available
 ]
 
@@ -69,6 +74,19 @@ dev = [
 
 [tool.uv]
 default-groups = ["dev"]
+
+# Pin the PyTorch ecosystem to the CUDA 12.8 build so the GPU image runs on any
+# host driver >= R570 (covers Turing through Blackwell via CUDA backward-compat).
+# Newer-driver nodes run this image fine; nodes older than R570 are out of scope
+# (see medmcp-dev/docs/containerization-plan.md).
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 
 [tool.ruff]
 line-length = 100
