@@ -9,6 +9,9 @@
 ARG BASE_IMAGE=medmcp-base:dev
 FROM ${BASE_IMAGE} AS runtime
 
+# Stack metadata for one-click install/discovery (read via `docker inspect`).
+LABEL org.medmcp.stack='{"name": "medmcp-neuro", "gpu": true, "tool_timeout_sec": 7200, "skills_path": "/app/src/medmcp_neuro/skills"}'
+
 # torch is pinned to the CUDA 12.8 (cu128) build (see pyproject), so it runs
 # natively on any host driver >= R570 (Turing through Blackwell) — no forward-compat
 # shim needed. libgomp1 is needed by antspyx/torch OpenMP paths.
