@@ -51,6 +51,20 @@ Skills are SKILL.md files the agent loads on demand to follow multi-step workflo
 
 ## Development
 
+### Develop in the dev container (recommended)
+
+This repo ships a dev container (`.devcontainer/`) with the full toolchain
+(Python 3.12 + uv, `just`, git, Docker CLI). It derives from the shared
+`medmcp-base` image, so build that once from the core repo first (`just docker-base`
+in `medmcp-dev`). Then open the repo with the **Dev Container** action in PyCharm
+(2024.2+) or **Reopen in Container** in VS Code — `uv sync` runs on first start.
+The dev container requests no GPU by default (so it starts anywhere); to run GPU
+code from inside add `--device nvidia.com/gpu=all`, or build and run the image. See
+the core repo's [CONTRIBUTING](https://github.com/medmcp/medmcp-dev/blob/main/CONTRIBUTING.md)
+for IDE specifics.
+
+### Local install (alternative)
+
 ```bash
 just setup     # install uv, sync dev environment, register pre-commit hooks
 just check     # lint + format-check + typecheck + tests
@@ -58,13 +72,30 @@ just fix       # auto-fix lint and format
 just test      # pytest only
 ```
 
-### Install for local agent use
+For local agent use, install the stack into its own uv tool environment:
 
 ```bash
 uv tool install --editable .
 ```
 
 The package registers itself via the `[medmcp.stacks]` entry point. The local agent autodiscovers it on the next session — no manual config needed.
+
+### Container image (deployment)
+
+This stack also ships as a GPU container with a fixed environment:
+
+```bash
+just docker-build           # build medmcp-neuro:dev (FROM medmcp-base)
+```
+
+It is a stdio MCP server (`ENTRYPOINT ["tini", "--", "medmcp-neuro"]`). The medmcp
+**core** launches it on demand via a `stacks.d/medmcp-neuro.toml` manifest
+(`docker run -i --device nvidia.com/gpu=all …`, CDI/rootless), so deployment nodes
+need no host Python install. torch is pinned to the **cu128 (CUDA 12.8)** build, so
+the image runs on any host with NVIDIA driver **≥ R570** (Turing→Blackwell; newer
+drivers via CUDA backward-compatibility). **`segment_brain` (FreeSurfer) is not yet
+in the container image** (heavy, x86-only — a planned follow-up); `skull_strip` and
+the registration tools work.
 
 ---
 

@@ -44,7 +44,26 @@ git clone https://github.com/<your-username>/<repo-name>.git
 cd <repo-name>
 ```
 
-### 4) Install your local copy into a virtual environment
+### 4) Develop in the dev container (recommended)
+
+The recommended way to work on this package is **inside the dev container**
+(`.devcontainer/`) — it gives everyone the same toolchain (Python 3.12 + uv,
+`just`, git, Docker CLI) and matches the deployment image. It derives from the
+shared `medmcp-base` image, so build that once from the core repo first
+(`just docker-base` in `medmcp-dev`). Then:
+
+- **PyCharm** (unified PyCharm, 2024.2+; Docker integration is a Professional
+  feature): open this project, open `.devcontainer/devcontainer.json`, and use the
+  **Dev Container** gutter action. Point PyCharm's Docker integration at your
+  (rootless) Docker socket.
+- **VS Code:** **Dev Containers: Reopen in Container** (the Dev Containers extension).
+- **CLI:** `devcontainer up --workspace-folder .`.
+
+`uv sync` runs automatically on first start. You can build/test the stack's
+container image (on the host or from inside) with `just docker-build`; the medmcp
+core launches it via a `stacks.d/<stack>.toml` manifest.
+
+### 5) Local install (alternative)
 
 [uv](https://docs.astral.sh/uv/) is required for development. You can install it with:
 
@@ -73,7 +92,7 @@ uv sync
 uv run pre-commit install
 ```
 
-### 5) Running checks locally
+### 6) Running checks locally
 
 Before pushing, make sure all checks pass — these are the same checks that run in CI:
 

@@ -57,3 +57,11 @@ test *ARGS:
 fix:
     uv run ruff check --fix
     uv run ruff format
+
+# Build this stack's GPU container image (stdio MCP server). Requires medmcp-base —
+# build it once from the core repo: `just docker-base` in medmcp-dev. torch is
+# pinned to the cu128 (CUDA 12.8) build, so the image runs on any host driver
+# >= R570. The core launches it via a stacks.d/medmcp-neuro.toml manifest with
+# `--device nvidia.com/gpu=all` (CDI). NOTE: FreeSurfer/segment_brain not included.
+docker-build TAG="medmcp-neuro:dev":
+    docker build -t {{TAG}} .
