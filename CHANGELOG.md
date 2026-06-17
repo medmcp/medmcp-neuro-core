@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Container image: `Dockerfile` (`FROM medmcp-base`; torch pinned to the cu128 build so it runs on any host driver >= R570; baked HD-BET weights; FreeSurfer/`segment_brain` deferred) + `.dockerignore`; `org.medmcp.stack` label for one-click install; `.devcontainer`; CI publishes to the private `ghcr.io/medmcp/neuro`.
+
 - `segment_brain` and `list_brain_segmentation_labels` tools backed by FreeSurfer's SynthSeg; contrast-agnostic segmentation of 33 or 95 brain structures with per-structure volume CSV output
 - `register_to_template`, `coregister`, and `apply_transform` tools backed by ANTsPy
 - MNI152NLin2009cAsym 1 mm template auto-download with local cache; brain-extracted variant selected via `skull_stripped` parameter
