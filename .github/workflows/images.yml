@@ -5,7 +5,8 @@ name: Image
 # FROM ghcr.io/medmcp/base — the base package must grant this repo read access
 # (Package settings -> Manage Actions access), and base:main must already be
 # published (run medmcp-dev's Images workflow first). amd64 only for now (torch
-# cu128 + antspyx + baked HD-BET weights; FreeSurfer/segment_brain not included).
+# cu128 + antspyx + baked HD-BET weights + FastSurfer seg-only for segment_brain;
+# ~26 GB, so no layer caching — see the build step).
 on:
   push:
     branches: [main]
@@ -43,5 +44,7 @@ jobs:
           tags: |
             ghcr.io/medmcp/neuro:${{ github.sha }}
             ghcr.io/medmcp/neuro:main
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # No GHA cache: this image is ~26 GB, far over the ~10 GB Actions-cache
+          # cap, and `cache-to: mode=max` exporting a second copy of every layer
+          # fills the runner disk ("no space left on device"). The build itself fits
+          # on the hosted runner (after the Free-disk step), so we just skip caching.
