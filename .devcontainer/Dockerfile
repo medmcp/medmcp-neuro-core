@@ -22,6 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
+# Trust extra CA certs for use behind a TLS-intercepting (MITM) corporate proxy.
+# Drop the proxy's root CA as a *.crt into ./certs/ (gitignored; empty = no-op),
+# then rebuild. UV_NATIVE_TLS makes uv use the system trust store so it honours
+# them (uv's bundled roots otherwise reject the proxy's re-signed certificates).
+COPY certs/ /usr/local/share/ca-certificates/medmcp-extra/
+RUN update-ca-certificates
+# uv uses the system store via UV_NATIVE_TLS; Python's requests/urllib (HD-BET,
+# FastSurfer downloaders) trust certifi, so point them at the system bundle too.
+ENV UV_NATIVE_TLS=1 \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 RUN curl --proto '=https' --tlsv1.2 -fsSL https://just.systems/install.sh \
     | bash -s -- --to /usr/local/bin
 COPY --from=docker:cli /usr/local/bin/docker /usr/local/bin/docker

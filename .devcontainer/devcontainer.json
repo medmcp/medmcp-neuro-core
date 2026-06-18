@@ -2,6 +2,7 @@
   "name": "medmcp-neuro",
   "build": {
     "dockerfile": "Dockerfile",
+    "context": "..",
     "args": { "BASE_IMAGE": "medmcp-base:dev" }
   },
   "workspaceFolder": "/workspaces/medmcp-neuro",
@@ -10,7 +11,8 @@
     "source=${localEnv:XDG_RUNTIME_DIR}/docker.sock,target=/var/run/docker.sock,type=bind"
   ],
   "containerEnv": {
-    "UV_LINK_MODE": "copy"
+    "UV_LINK_MODE": "copy",
+    "UV_NATIVE_TLS": "1"
   },
   "postCreateCommand": "uv sync",
   "remoteUser": "root"
