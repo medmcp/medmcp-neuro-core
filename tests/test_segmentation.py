@@ -74,7 +74,7 @@ def test_missing_binary_raises(tmp_path: Path) -> None:
     inp.touch()
     with (
         patch(_FIND_FASTSURFER, side_effect=RuntimeError("run_fastsurfer.sh not found")),
-        pytest.raises(RuntimeError, match="run_fastsurfer.sh not found"),
+        pytest.raises(RuntimeError, match=r"run_fastsurfer\.sh not found"),
     ):
         segment_brain(inp, device="cpu")
 

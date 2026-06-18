@@ -148,6 +148,21 @@ def _find_fastsurfer() -> str:
     return binary
 
 
+def _fastsurfer_python() -> str | None:
+    """Return the interpreter for FastSurfer's isolated venv, if available.
+
+    FastSurfer pins its own torch, so it lives in a separate venv
+    (/opt/fastsurfer-venv) and run_fastsurfer.sh is pointed at it via ``--py``.
+    Overridable with $FASTSURFER_PYTHON; returns None to fall back to the script's
+    default interpreter (e.g. in tests / non-container installs).
+    """
+    override = os.environ.get("FASTSURFER_PYTHON")
+    if override:
+        return override
+    candidate = Path("/opt/fastsurfer-venv/bin/python")
+    return str(candidate) if candidate.is_file() else None
+
+
 def _resolve_device(device: str) -> str:
     """Map a requested device to one FastSurfer accepts ('cuda' | 'mps' | 'cpu').
 
@@ -243,6 +258,9 @@ def segment_brain(
             "--device", resolved_device,
             "--threads", str(threads),
         ]
+        fs_python = _fastsurfer_python()
+        if fs_python:
+            cmd += ["--py", fs_python]
         print(
             f"[medmcp-neuro] segment: running FastSurfer on {input_path.name} "
             f"(device={resolved_device})...",

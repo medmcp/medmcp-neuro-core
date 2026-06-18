@@ -19,6 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Trust extra CA certs at build time behind a TLS-intercepting (MITM) proxy so
+# uv/pip/git fetch through it. Drop the proxy root CA as a *.crt into ./certs/
+# (gitignored; empty = no-op — CI / non-proxied builds add nothing). UV_NATIVE_TLS
+# makes uv use the system trust store. Runtime is offline, so no production impact.
+COPY certs/ /usr/local/share/ca-certificates/medmcp-extra/
+RUN update-ca-certificates
+ENV UV_NATIVE_TLS=1
+
 WORKDIR /app
 
 # Frozen install from the committed lock (build-time network; runtime offline).
@@ -27,22 +35,37 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
+# Python downloaders (HD-BET, FastSurfer checkpoints) use requests/urllib, which
+# trust certifi's bundle — not the system store — so they also need pointing at the
+# updated bundle to fetch through a MITM proxy. Harmless without a proxy CA, and the
+# runtime is offline so there is no production impact.
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
 # Bake HD-BET weights so skull_strip runs with --network none (no runtime download).
 RUN /app/.venv/bin/python -c "from HD_BET.checkpoint_download import maybe_download_parameters; maybe_download_parameters()"
 
 # ── FastSurfer (segment_brain) ────────────────────────────────────────────────
 # Whole-brain segmentation via FastSurferVINN, seg-only (no FreeSurfer license).
-# BUILD-VALIDATION TODOs (verify on first build):
-#   1. Pin FASTSURFER_VERSION to a verified release tag.
-#   2. FastSurfer's requirements.txt pins torch; if it conflicts with HD-BET/antspyx
-#      in /app/.venv, move FastSurfer to its own venv and pass run_fastsurfer.sh
-#      --python /opt/fastsurfer-venv/bin/python instead. (Subprocess-isolated either way.)
-ARG FASTSURFER_VERSION=v2.3.3
+# FastSurfer pins its own torch (2.7.1) which conflicts with the cu128 torch +
+# HD-BET in /app/.venv, so it gets an ISOLATED venv (still GPU/cu128 via
+# --torch-backend). segment_brain runs run_fastsurfer.sh with --py pointing here,
+# so the two torch stacks never share a process. Subprocess-isolated either way.
+ARG FASTSURFER_VERSION=v2.5.4
+# seg-only: drop scikit-sparse — a recon_surf/surface-pipeline dep (needs SuiteSparse,
+# and the pinned version isn't published) that is never imported on the seg path.
 RUN git clone --depth 1 --branch ${FASTSURFER_VERSION} \
         https://github.com/Deep-MI/FastSurfer.git /opt/FastSurfer \
- && uv pip install --python /app/.venv -r /opt/FastSurfer/requirements.txt
+ && uv venv --python 3.12 /opt/fastsurfer-venv \
+ && grep -viE '^\s*scikit-sparse' /opt/FastSurfer/requirements.txt > /tmp/fs-seg-req.txt \
+ && uv pip install --python /opt/fastsurfer-venv/bin/python \
+        --torch-backend=cu128 --index-strategy unsafe-best-match \
+        -r /tmp/fs-seg-req.txt
 # Bake the inference checkpoints so segment_brain runs offline (like HD-BET).
-RUN /app/.venv/bin/python /opt/FastSurfer/FastSurferCNN/download_checkpoints.py --all
+# PYTHONPATH so the script can import the FastSurferCNN package (ENV is set below).
+RUN PYTHONPATH=/opt/FastSurfer /opt/fastsurfer-venv/bin/python \
+        /opt/FastSurfer/FastSurferCNN/download_checkpoints.py --all
 
 ENV PATH=/opt/FastSurfer:/app/.venv/bin:$PATH \
     FASTSURFER_HOME=/opt/FastSurfer \
