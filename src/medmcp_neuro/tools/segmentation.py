@@ -249,14 +249,24 @@ def segment_brain(
         stats_path = Path(sd) / f"{stem}_aseg.stats"
         cmd = [
             binary,
-            "--t1", str(input_path),
-            "--sid", stem,
-            "--sd", sd,
+            "--t1",
+            str(input_path),
+            "--sid",
+            stem,
+            "--sd",
+            sd,
             "--seg_only",
-            "--asegdkt_segfile", str(seg_path),
-            "--asegdkt_statsfile", str(stats_path),
-            "--device", resolved_device,
-            "--threads", str(threads),
+            "--asegdkt_segfile",
+            str(seg_path),
+            "--asegdkt_statsfile",
+            str(stats_path),
+            "--device",
+            resolved_device,
+            "--threads",
+            str(threads),
+            # MedMCP launches stack containers as root; FastSurfer refuses root
+            # unless explicitly allowed.
+            "--allow_root",
         ]
         fs_python = _fastsurfer_python()
         if fs_python:
@@ -271,13 +281,22 @@ def segment_brain(
         if proc.stderr:
             sys.stderr.write(proc.stderr)
             sys.stderr.flush()
-        if proc.returncode != 0:
+        # FastSurfer's seg-only stream can exit non-zero on a cosmetic final step
+        # (symlinking the stats into the standard <sid>/stats/ dir) even when the
+        # segmentation and stats were written. Treat the presence of both expected
+        # outputs as the success signal rather than the exit code.
+        if not seg_path.exists() or not stats_path.exists():
             note = cuda_unavailable_note() if resolved_device == "cuda" else ""
             raise RuntimeError(
                 f"FastSurfer failed (exit {proc.returncode}): {proc.stderr.strip()}.{note}"
             )
-        if not seg_path.exists():
-            raise RuntimeError(f"Segmentation completed but output not found: {seg_path}")
+        if proc.returncode != 0:
+            print(
+                f"[medmcp-neuro] segment: FastSurfer exited {proc.returncode} but the "
+                "segmentation and stats were produced; continuing.",
+                file=sys.stderr,
+                flush=True,
+            )
 
         # Volume CSV from FastSurfer's own stats (no FreeSurfer mri_segstats).
         with open(volumes_path, "w", newline="") as fh:

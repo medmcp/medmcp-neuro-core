@@ -110,6 +110,7 @@ def test_seg_only_and_device_passed(tmp_path: Path) -> None:
     _, mock_run = _run_with_mock(tmp_path)
     cmd = mock_run.call_args[0][0]
     assert "--seg_only" in cmd
+    assert "--allow_root" in cmd  # stack containers run as root
     assert cmd[cmd.index("--device") + 1] == "cpu"
 
 
@@ -154,3 +155,48 @@ def test_render_contains_next_action(tmp_path: Path) -> None:
     """_render includes a NEXT ACTION directive."""
     result, _ = _run_with_mock(tmp_path)
     assert "NEXT ACTION" in str(result["_render"])
+
+
+# --- exit-code tolerance (FastSurfer's cosmetic post-step can exit non-zero) ---
+
+
+def test_nonzero_exit_with_outputs_succeeds(tmp_path: Path) -> None:
+    """Non-zero exit is tolerated when seg + stats were produced (cosmetic failure)."""
+
+    def mock(cmd: list[str], *, capture_output: bool, text: bool, timeout: int) -> MagicMock:
+        Path(cmd[cmd.index("--asegdkt_segfile") + 1]).touch()
+        Path(cmd[cmd.index("--asegdkt_statsfile") + 1]).write_text(_FAKE_STATS)
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "cp: cannot create .../stats/aseg+DKT.stats"
+        return result
+
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.touch()
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        patch(_SUBPROCESS_RUN, side_effect=mock),
+    ):
+        result = segment_brain(inp, device="cpu")
+    assert "Left-Thalamus,9123.4" in Path(str(result["volumes_path"])).read_text()
+
+
+def test_nonzero_exit_without_outputs_raises(tmp_path: Path) -> None:
+    """Non-zero exit AND no outputs is a genuine failure -> raise."""
+
+    def mock(cmd: list[str], *, capture_output: bool, text: bool, timeout: int) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "CUDA error"
+        return result
+
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.touch()
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        patch(_SUBPROCESS_RUN, side_effect=mock),
+        pytest.raises(RuntimeError, match="FastSurfer failed"),
+    ):
+        segment_brain(inp, device="cpu")
