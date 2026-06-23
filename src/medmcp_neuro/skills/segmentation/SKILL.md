@@ -17,15 +17,21 @@ seg-only) to label cortical and subcortical structures and produce a per-structu
 
 ## Steps
 
-1. **Confirm the input is T1w.** FastSurfer is trained on T1-weighted MRI. If the
-   image looks like another contrast (FLAIR/T2w/DWI — e.g. the filename contains
-   `FLAIR`, `T2w`, `dwi`), warn the user that results may be unreliable and offer to
-   proceed anyway or coregister a T1w instead. Do **not** silently run on non-T1w.
+1. **Confirm the input is T1w.** FastSurfer is trained on T1-weighted MRI (MPRAGE
+   is the canonical sequence, but any T1w — MP2RAGE, SPGR, … — is fine; do **not**
+   restrict to MPRAGE). `segment_brain` also checks this itself: a filename naming a
+   non-T1w contrast (`FLAIR`, `T2w`, `dwi`, …) comes back in the `warnings` field.
+   Note the header alone *cannot* confirm contrast (NIfTI has no sequence field), so
+   this is a filename heuristic — relay the warning and offer to coregister a T1w
+   instead. Do **not** silently run on non-T1w.
 2. **Do not skull-strip first.** FastSurfer accepts full-head *and* skull-stripped
    input and does its own brain extraction. Running `skull_strip` beforehand is
    unnecessary (and harmless, but don't add the step on the user's behalf).
 3. **Run `segment_brain`** with `device="auto"` (uses the GPU when available; falls
-   back to CPU, which is much slower — tell the user if it resolves to CPU).
+   back to CPU, which is much slower — tell the user if it resolves to CPU). If the
+   image is strongly anisotropic or thick-slice (e.g. 1×1×5 mm 2D clinical scans),
+   the call raises rather than producing a garbage segmentation; relay the error and
+   only re-run with `force=True` if the user explicitly accepts degraded quality.
 4. **Report the requested structure.** When the user asked for a specific volume,
    read the CSV at `volumes_path` and report the matching row(s) — e.g. for the
    thalamus, the `left thalamus` and `right thalamus` rows (values in **mm³**).
@@ -51,3 +57,9 @@ aseg convention (`left thalamus`, `right hippocampus`, …); cortical parcels ar
   result reports which `device` was used.
 - **T1w only** — FastSurfer is not contrast-agnostic. For heterogeneous/clinical
   multi-contrast cohorts, flag that a contrast-robust method may be more appropriate.
+- **Resolution** — FastSurfer conforms to ~1 mm internally and handles ~0.7–1.0 mm
+  native, so ordinary 1 mm variation is fine. `segment_brain` warns when resolution
+  drifts outside ~0.7–1.3 mm or is mildly anisotropic, and **refuses** strongly
+  anisotropic / thick-slice data (≥2 mm voxels or ≥2× anisotropy) unless `force=True`,
+  because conforming such scans yields a meaningless segmentation. Always read back
+  the `warnings` field and pass it on to the user.

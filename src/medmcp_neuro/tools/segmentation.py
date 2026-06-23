@@ -15,6 +15,7 @@ match the aseg / DKT-atlas names that appear in the stats output.
 
 import csv
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,23 @@ from pathlib import Path
 from typing import TypedDict
 
 from medmcp_neuro.tools._neuro import cuda_unavailable_note, detect_devices, find_binary, nii_stem
+
+# --- input sanity thresholds ---------------------------------------------------
+# FastSurferVINN conforms inputs to ~1mm internally and handles ~0.7-1.0mm native,
+# so these guard against pathological *clinical* inputs (thick-slice 2D), not normal
+# 1mm variation. Mildly-off resolution is a warning; strongly anisotropic or
+# thick-slice data is a hard error (overridable with force=True).
+_VOXEL_TARGET_MM: tuple[float, float] = (0.7, 1.3)  # comfortable band; outside -> warn
+_VOXEL_BLOCK_MM: float = 2.0  # any voxel dim at/above this -> block (thick slices)
+_ANISO_WARN: float = 1.5  # max/min zoom ratio above this -> warn
+_ANISO_BLOCK: float = 2.0  # ...at/above this -> block
+
+# Filename tokens that name a non-T1w contrast. NIfTI headers carry no contrast /
+# sequence field (unlike DICOM), so a BIDS-style filename suffix is the only signal
+# we have for modality — hence a warning, never a hard block.
+_NON_T1W_TOKENS: frozenset[str] = frozenset(
+    {"flair", "t2w", "t2star", "t2", "dwi", "dti", "swi", "pd", "pdw", "bold", "asl", "angio", "ct"}
+)
 
 # Subcortical + global structures always present in the aseg/DKT stats output.
 _SUBCORTICAL_LABELS: list[str] = [
@@ -106,6 +124,7 @@ class SegmentResult(TypedDict):
     volumes_path: str
     input_path: str
     device: str
+    warnings: list[str]
     _render: str
 
 
@@ -202,11 +221,108 @@ def _parse_aseg_stats(stats_path: Path) -> list[tuple[str, float]]:
     return rows
 
 
+def _read_voxel_zooms(input_path: Path) -> tuple[float, ...]:
+    """Return the voxel sizes (mm) from a NIfTI header.
+
+    Isolates the nibabel access: ``load`` carries untyped ``**kwargs`` and the base
+    ``FileBasedImage`` doesn't statically expose ``get_zooms``, so we narrow to a
+    SpatialImage (which all NIfTIs are) to keep the rest of the module strictly typed.
+
+    Raises:
+        ValueError: If the file is not a spatial image (no voxel geometry).
+    """
+    import nibabel as nib
+    from nibabel.spatialimages import SpatialImage
+
+    img = nib.load(str(input_path))  # pyright: ignore[reportUnknownMemberType]
+    if not isinstance(img, SpatialImage):
+        msg = f"{input_path} is not a spatial image (no voxel geometry)"
+        raise ValueError(msg)
+    return tuple(float(z) for z in img.header.get_zooms())
+
+
+def _check_input(input_path: Path, force: bool) -> list[str]:
+    """Sanity-check the input image before handing it to FastSurfer.
+
+    FastSurfer is trained on T1-weighted MRI and conforms inputs to ~1mm, but it
+    does not validate contrast or resolution itself. This guards the two failure
+    modes we can detect:
+
+    * **Modality** — NIfTI headers carry no contrast field, so we can only flag a
+      *filename* that names a non-T1w contrast (BIDS suffix). Always a warning,
+      never a block: a file named ``sub01.nii.gz`` is not necessarily wrong.
+    * **Resolution** — voxel zooms live in the header. Mildly-off resolution or
+      mild anisotropy is a warning; strongly anisotropic or thick-slice data
+      (typical of 2D clinical acquisitions) is a hard error unless ``force=True``,
+      because conforming it to 1mm yields a garbage segmentation.
+
+    Args:
+        input_path: NIfTI file to inspect.
+        force: Downgrade the pathological-resolution error to a warning and run anyway.
+
+    Returns:
+        Non-fatal warnings to surface to the caller (empty when the input looks fine).
+
+    Raises:
+        ValueError: On pathological resolution unless ``force`` is True.
+    """
+    warnings: list[str] = []
+
+    # Modality: filename heuristic only (header has no contrast field). Split the
+    # stem into BIDS-style fields so we match suffixes, not stray substrings.
+    fields = {f for f in re.split(r"[^a-z0-9]+", nii_stem(input_path).lower()) if f}
+    contrast = sorted(fields & _NON_T1W_TOKENS)
+    if contrast:
+        warnings.append(
+            f"Filename names a non-T1w contrast ({', '.join(contrast)}); FastSurfer is "
+            "trained on T1-weighted MRI and results on other contrasts are unreliable. "
+            "Contrast cannot be confirmed from the NIfTI header, so this is a warning only."
+        )
+
+    # Resolution: read voxel zooms from the header.
+    try:
+        zooms = _read_voxel_zooms(input_path)[:3]
+    except Exception as exc:  # unreadable/odd header: skip the check, don't fail the run
+        warnings.append(
+            f"Could not read voxel resolution from the header ({exc}); skipping resolution check."
+        )
+        return warnings
+
+    if len(zooms) < 3 or any(z <= 0 for z in zooms):
+        warnings.append(f"Unexpected voxel dimensions {zooms}; skipping resolution check.")
+        return warnings
+
+    lo, hi = min(zooms), max(zooms)
+    aniso = hi / lo
+    res_str = "x".join(f"{z:.2f}" for z in zooms) + " mm"
+
+    if hi >= _VOXEL_BLOCK_MM or aniso >= _ANISO_BLOCK:
+        msg = (
+            f"Input voxel resolution {res_str} (anisotropy {aniso:.1f}x) is outside "
+            "FastSurfer's supported range — strongly anisotropic or thick-slice data "
+            "(typical of 2D clinical acquisitions) conforms to a garbage segmentation."
+        )
+        if not force:
+            raise ValueError(f"{msg} Pass force=True to run anyway.")
+        warnings.append(
+            f"{msg} Running anyway because force=True; quality may be severely degraded."
+        )
+    elif aniso >= _ANISO_WARN or not (_VOXEL_TARGET_MM[0] <= lo and hi <= _VOXEL_TARGET_MM[1]):
+        warnings.append(
+            f"Input resolution {res_str} (anisotropy {aniso:.1f}x) is outside FastSurfer's "
+            f"ideal ~{_VOXEL_TARGET_MM[0]:g}-{_VOXEL_TARGET_MM[1]:g} mm isotropic band; "
+            "results may be less accurate."
+        )
+
+    return warnings
+
+
 def segment_brain(
     input_path: Path,
     output_dir: Path | None = None,
     device: str = "auto",
     threads: int = 4,
+    force: bool = False,
 ) -> SegmentResult:
     """Segment brain structures from a NIfTI image using FastSurfer.
 
@@ -218,21 +334,34 @@ def segment_brain(
     Outputs a discrete label map (``.mgz``) and a per-structure volume CSV. Call
     list_brain_segmentation_labels() to see the structures and CSV column names.
 
+    The input is sanity-checked first (see _check_input): a filename that names a
+    non-T1w contrast is flagged as a warning, and strongly anisotropic / thick-slice
+    resolution is rejected unless ``force=True``. Non-fatal warnings are returned in
+    the ``warnings`` field.
+
     Args:
         input_path: Absolute path to the input NIfTI file (.nii or .nii.gz).
         output_dir: Directory for outputs. Defaults to input_path's directory.
         device: 'auto' (default; cuda > mps > cpu), or force 'cuda' / 'mps' / 'cpu'.
         threads: CPU threads for pre/post-processing. Default 4.
+        force: Run even when the input resolution is outside FastSurfer's supported
+            range (otherwise such inputs raise ValueError). Default False.
 
     Returns:
-        SegmentResult with paths to the segmentation label map and volume CSV.
+        SegmentResult with paths to the segmentation label map and volume CSV, plus
+        any non-fatal input warnings.
 
     Raises:
         FileNotFoundError: If input_path does not exist.
+        ValueError: If the input resolution is pathological and force is False.
         RuntimeError: If FastSurfer is not installed or segmentation fails.
     """
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
+
+    warnings = _check_input(input_path, force=force)
+    for warning in warnings:
+        print(f"[medmcp-neuro] segment: WARNING: {warning}", file=sys.stderr, flush=True)
 
     binary = _find_fastsurfer()
     resolved_device = _resolve_device(device)
@@ -309,8 +438,11 @@ def segment_brain(
         "volumes_path": str(volumes_path),
         "input_path": str(input_path),
         "device": resolved_device,
+        "warnings": warnings,
         "_render": (
             "DISPLAY RULES — follow exactly:\n"
+            "If 'warnings' is non-empty, surface each warning to the user FIRST — the "
+            "input may not be ideal for FastSurfer (wrong contrast or off resolution).\n"
             "Report the segmentation result as a compact key-value list:\n"
             "  Input:      <input_path>\n"
             "  Seg labels: <seg_path>\n"

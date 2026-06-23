@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import nibabel as nib
+import numpy as np
 import pytest
 
 from medmcp_neuro.tools.segmentation import segment_brain
@@ -10,6 +12,16 @@ from medmcp_neuro.tools.segmentation import segment_brain
 _SUBPROCESS_RUN = "medmcp_neuro.tools.segmentation.subprocess.run"
 _FIND_FASTSURFER = "medmcp_neuro.tools.segmentation._find_fastsurfer"
 _FAKE_BINARY = "/opt/FastSurfer/run_fastsurfer.sh"
+
+
+def _write_nifti(path: Path, zooms: tuple[float, float, float] = (1.0, 1.0, 1.0)) -> Path:
+    """Write a tiny valid NIfTI with the given voxel zooms (mm)."""
+    affine = np.diag([zooms[0], zooms[1], zooms[2], 1.0])
+    img = nib.Nifti1Image(np.zeros((4, 4, 4), dtype=np.int16), affine)
+    img.header.set_zooms(zooms)
+    nib.save(img, str(path))  # pyright: ignore[reportUnknownMemberType]
+    return path
+
 
 _FAKE_STATS = (
     "# Title Segmentation Statistics\n"
@@ -46,8 +58,7 @@ def _run_with_mock(
 
     device="cpu" so _resolve_device short-circuits without importing torch.
     """
-    inp = tmp_path / filename
-    inp.touch()
+    inp = _write_nifti(tmp_path / filename)
     with (
         patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run,
@@ -70,8 +81,7 @@ def test_missing_input_raises(tmp_path: Path) -> None:
 
 def test_missing_binary_raises(tmp_path: Path) -> None:
     """RuntimeError when FastSurfer is not installed."""
-    inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz")
     with (
         patch(_FIND_FASTSURFER, side_effect=RuntimeError("run_fastsurfer.sh not found")),
         pytest.raises(RuntimeError, match=r"run_fastsurfer\.sh not found"),
@@ -90,8 +100,7 @@ def test_output_written_next_to_input_by_default(tmp_path: Path) -> None:
 
 def test_output_written_to_output_dir(tmp_path: Path) -> None:
     """When output_dir is given, outputs are written there and the directory is created."""
-    inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz")
     out_dir = tmp_path / "segs"
     with (
         patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
@@ -172,8 +181,7 @@ def test_nonzero_exit_with_outputs_succeeds(tmp_path: Path) -> None:
         result.stderr = "cp: cannot create .../stats/aseg+DKT.stats"
         return result
 
-    inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz")
     with (
         patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
         patch(_SUBPROCESS_RUN, side_effect=mock),
@@ -192,11 +200,78 @@ def test_nonzero_exit_without_outputs_raises(tmp_path: Path) -> None:
         result.stderr = "CUDA error"
         return result
 
-    inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz")
     with (
         patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
         patch(_SUBPROCESS_RUN, side_effect=mock),
         pytest.raises(RuntimeError, match="FastSurfer failed"),
     ):
         segment_brain(inp, device="cpu")
+
+
+# --- input sanity checks (modality + resolution) ---
+
+
+def test_isotropic_t1w_has_no_warnings(tmp_path: Path) -> None:
+    """A clean 1mm isotropic T1w produces no input warnings."""
+    result, _ = _run_with_mock(tmp_path, filename="sub-01_T1w.nii.gz")
+    assert result["warnings"] == []
+
+
+def test_non_t1w_filename_warns_but_runs(tmp_path: Path) -> None:
+    """A non-T1w contrast in the filename is a warning, not a block."""
+    inp = _write_nifti(tmp_path / "sub-01_FLAIR.nii.gz")
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run),
+    ):
+        result = segment_brain(inp, device="cpu")
+    assert any("non-T1w contrast" in w for w in result["warnings"])
+    assert result["seg_path"]  # still ran
+
+
+def test_mild_anisotropy_warns_but_runs(tmp_path: Path) -> None:
+    """Mildly anisotropic resolution warns but does not block."""
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz", zooms=(1.0, 1.0, 1.6))
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run),
+    ):
+        result = segment_brain(inp, device="cpu")
+    assert any("less accurate" in w for w in result["warnings"])
+    assert result["seg_path"]
+
+
+def test_thick_slice_raises_without_force(tmp_path: Path) -> None:
+    """Thick-slice / strongly anisotropic data is rejected unless force=True."""
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz", zooms=(1.0, 1.0, 5.0))
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        pytest.raises(ValueError, match="supported range"),
+    ):
+        segment_brain(inp, device="cpu")
+
+
+def test_thick_slice_runs_with_force(tmp_path: Path) -> None:
+    """force=True downgrades the resolution error to a warning and runs."""
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz", zooms=(1.0, 1.0, 5.0))
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run),
+    ):
+        result = segment_brain(inp, device="cpu", force=True)
+    assert any("force=True" in w for w in result["warnings"])
+    assert result["seg_path"]
+
+
+def test_unreadable_header_skips_resolution_check(tmp_path: Path) -> None:
+    """A non-NIfTI file warns that resolution couldn't be read, but does not block."""
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.write_bytes(b"not a nifti")
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run),
+    ):
+        result = segment_brain(inp, device="cpu")
+    assert any("Could not read voxel resolution" in w for w in result["warnings"])
+    assert result["seg_path"]
