@@ -22,7 +22,13 @@ import tempfile
 from pathlib import Path
 from typing import TypedDict
 
-from medmcp_neuro.tools._neuro import cuda_unavailable_note, detect_devices, find_binary, nii_stem
+from medmcp_neuro.tools._neuro import (
+    Device,
+    cuda_unavailable_note,
+    find_binary,
+    nii_stem,
+    resolve_device,
+)
 
 # --- input sanity thresholds ---------------------------------------------------
 # FastSurferVINN conforms inputs to ~1mm internally and handles ~0.7-1.0mm native,
@@ -184,21 +190,6 @@ def _fastsurfer_python() -> str | None:
     interpreter detection (e.g. in tests / non-container installs).
     """
     return os.environ.get("FASTSURFER_PYTHON") or None
-
-
-def _resolve_device(device: str) -> str:
-    """Map a requested device to one FastSurfer accepts ('cuda' | 'mps' | 'cpu').
-
-    'auto' picks cuda, then mps, then cpu based on what torch reports available.
-    """
-    if device != "auto":
-        return device
-    available = detect_devices()
-    if "cuda" in available:
-        return "cuda"
-    if "mps" in available:
-        return "mps"
-    return "cpu"
 
 
 # Corpus-callosum SegIds (CC_Posterior..CC_Anterior). FastSurfer's seg-only segstats
@@ -369,7 +360,7 @@ def _check_input(input_path: Path, force: bool) -> list[str]:
 def segment_brain(
     input_path: Path,
     output_dir: Path | None = None,
-    device: str = "auto",
+    device: Device = "auto",
     threads: int = 4,
     force: bool = False,
 ) -> SegmentResult:
@@ -413,7 +404,7 @@ def segment_brain(
         print(f"[medmcp-neuro] segment: WARNING: {warning}", file=sys.stderr, flush=True)
 
     binary = _find_fastsurfer()
-    resolved_device = _resolve_device(device)
+    resolved_device = resolve_device(device)
 
     out_dir = output_dir if output_dir is not None else input_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
