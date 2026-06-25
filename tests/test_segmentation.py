@@ -58,7 +58,7 @@ def _run_with_mock(
 ) -> tuple[dict[str, object], MagicMock]:
     """Run segment_brain with subprocess.run mocked; return (result, mock_run).
 
-    device="cpu" so _resolve_device short-circuits without importing torch.
+    device="cpu" so resolve_device short-circuits without importing torch.
     """
     inp = _write_nifti(tmp_path / filename)
     with (

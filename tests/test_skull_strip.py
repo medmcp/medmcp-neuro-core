@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from medmcp_neuro.tools._neuro import Device
 from medmcp_neuro.tools.skull_strip import skull_strip
 
 _SUBPROCESS_RUN = "medmcp_neuro.tools.skull_strip.subprocess.run"
@@ -32,7 +33,7 @@ def _mock_subprocess_run(
 
 def _run_with_mock(
     tmp_path: Path,
-    device: str = "cpu",
+    device: Device = "cpu",
     filename: str = "sub-01_T1w.nii.gz",
 ) -> tuple[dict[str, object], MagicMock]:
     """Run skull_strip with subprocess.run mocked; return (result, mock_run)."""
@@ -86,11 +87,37 @@ def test_cpu_disables_tta(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("device", ["cuda", "mps"])
-def test_accelerator_enables_tta(tmp_path: Path, device: str) -> None:
+def test_accelerator_enables_tta(tmp_path: Path, device: Device) -> None:
     """Subprocess receives use_tta=True for GPU/MPS devices."""
     _, mock_run = _run_with_mock(tmp_path, device=device)
     call_args = json.loads(mock_run.call_args[1]["input"])
     assert call_args["use_tta"] is True
+
+
+def test_auto_resolves_to_accelerator_and_enables_tta(tmp_path: Path) -> None:
+    """device='auto' resolves via resolve_device; an accelerator enables TTA and is reported."""
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.touch()
+    with (
+        patch("medmcp_neuro.tools.skull_strip.resolve_device", return_value="cuda"),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run,
+    ):
+        result = skull_strip(inp, device="auto")
+    assert result["device"] == "cuda"
+    assert json.loads(mock_run.call_args[1]["input"])["use_tta"] is True
+
+
+def test_auto_resolving_to_cpu_disables_tta(tmp_path: Path) -> None:
+    """device='auto' resolving to cpu disables TTA and reports the resolved device."""
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.touch()
+    with (
+        patch("medmcp_neuro.tools.skull_strip.resolve_device", return_value="cpu"),
+        patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run,
+    ):
+        result = skull_strip(inp, device="auto")
+    assert result["device"] == "cpu"
+    assert json.loads(mock_run.call_args[1]["input"])["use_tta"] is False
 
 
 def test_subprocess_receives_correct_stem(tmp_path: Path) -> None:

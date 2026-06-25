@@ -4,6 +4,10 @@ import os
 import shutil
 import sys
 from pathlib import Path
+from typing import Literal
+
+# Shared device convention: every GPU-capable tool accepts one of these (default "auto").
+Device = Literal["auto", "cuda", "mps", "cpu"]
 
 
 def nii_stem(path: Path) -> str:
@@ -30,6 +34,31 @@ def detect_devices() -> list[str]:
     if torch.backends.mps.is_available():
         devices.append("mps")
     return devices
+
+
+def resolve_device(device: Device) -> str:
+    """Resolve a requested compute device to a concrete one (the shared device convention).
+
+    Every GPU-capable tool accepts ``device`` as ``"auto"`` (the default), ``"cuda"``,
+    ``"mps"``, or ``"cpu"`` and resolves it through this helper. ``"auto"`` selects the
+    best available accelerator — CUDA (NVIDIA), then MPS (Apple Silicon), then CPU — from
+    what torch reports; an explicit device is returned unchanged. Tools should run on, and
+    report, the *resolved* device so an ``"auto"`` → CPU fallback is never silent.
+
+    Args:
+        device: ``"auto"``, or an explicit ``"cuda"`` / ``"mps"`` / ``"cpu"``.
+
+    Returns:
+        A concrete device string ('cuda', 'mps', or 'cpu').
+    """
+    if device != "auto":
+        return device
+    available = detect_devices()
+    if "cuda" in available:
+        return "cuda"
+    if "mps" in available:
+        return "mps"
+    return "cpu"
 
 
 def cuda_unavailable_note() -> str:
