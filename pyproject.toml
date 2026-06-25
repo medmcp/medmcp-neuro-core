@@ -116,9 +116,10 @@ quote-style = "double"
 
 [tool.pyright]
 include = ["src", "tests"]
-# _run_ants.py is a subprocess entry point; ANTsPy has partial stubs that cause
-# spurious reportUnknownVariableType errors throughout — exclude rather than annotate each line.
-exclude = ["src/medmcp_neuro/tools/_run_ants.py"]
+# _run_ants.py and _hdbet_serve.py are subprocess entry points whose heavy deps
+# (ANTsPy / HD-BET + nnU-Net) ship partial stubs that cause spurious
+# reportUnknownVariableType errors throughout — exclude rather than annotate each line.
+exclude = ["src/medmcp_neuro/tools/_run_ants.py", "src/medmcp_neuro/tools/_hdbet_serve.py"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 

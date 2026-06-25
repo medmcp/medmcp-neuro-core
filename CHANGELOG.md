@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `skull_strip` persistent HD-BET worker: loads torch + CUDA + the model once and reuses it across calls (opt-in via `MEDMCP_HDBET_PERSIST`, or once pre-loaded by the new `warmup` tool), reclaiming ~10 s of model-load per warm call (~23 s → ~11 s on GPU). Falls back to the per-call subprocess if the worker is unavailable, so behaviour is unchanged by default.
+- `warmup` tool to pre-load the HD-BET model so the first `skull_strip` is already warm (the hook the workspace pre-warm pool calls on activation).
 - Container image: `Dockerfile` (`FROM medmcp-base`; torch pinned to the cu128 build so it runs on any host driver >= R570; baked HD-BET weights; FreeSurfer/`segment_brain` deferred) + `.dockerignore`; `org.medmcp.stack` label for one-click install; `.devcontainer`; CI publishes to the private `ghcr.io/medmcp/neuro`.
 
 - `segment_brain` and `list_brain_segmentation_labels` tools backed by FreeSurfer's SynthSeg; contrast-agnostic segmentation of 33 or 95 brain structures with per-structure volume CSV output

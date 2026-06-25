@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import TypedDict
 
+from medmcp_neuro.tools._hdbet_worker import WorkerError, get_worker, persist_enabled
 from medmcp_neuro.tools._neuro import cuda_unavailable_note, nii_stem
 
 
@@ -17,6 +18,14 @@ class SkullStripResult(TypedDict):
     input_path: str
     device: str
     _render: str
+
+
+class WarmupResult(TypedDict):
+    """Result of pre-loading the HD-BET model into a persistent worker."""
+
+    ok: bool
+    device: str
+    warmed: bool
 
 
 def skull_strip(
@@ -59,6 +68,7 @@ def skull_strip(
     out_dir = output_dir if output_dir is not None else input_path.parent
     stem = nii_stem(input_path)
     brain_path = out_dir / f"{stem}_skullstripped.nii.gz"
+    use_tta = device != "cpu"
 
     out_dir.mkdir(parents=True, exist_ok=True)
     print(
@@ -67,12 +77,73 @@ def skull_strip(
         flush=True,
     )
 
-    # Run HD-BET in a subprocess with its own stdin/stdout pipes (via input= and
-    # capture_output=True) so the MCP file descriptors are not inherited by
-    # nnU-Net's multiprocessing workers.  Without isolation, the Manager().Queue
-    # workers deadlock because they inherit the MCP pipe FDs.
-    # The result is written to a tempfile rather than stdout to avoid
-    # contamination from nnU-Net's own output bypassing the Python-level redirect.
+    # Fast path: a persistent worker holding the model warm (reused across calls).
+    # Used when one is already warm (via the `warmup` hook) or when auto-start is
+    # enabled. A dead/unavailable worker falls back to the per-call subprocess so
+    # skull_strip never breaks; a genuine inference failure (RuntimeError) is not
+    # retried.
+    worker = get_worker(device, use_tta, start=persist_enabled())
+    if worker is not None:
+        try:
+            worker.run(str(input_path), stem, str(brain_path))
+        except WorkerError:
+            _run_via_subprocess(device, use_tta, input_path, stem, brain_path)
+    else:
+        _run_via_subprocess(device, use_tta, input_path, stem, brain_path)
+
+    if not brain_path.exists():
+        raise RuntimeError(f"Skull stripping completed but output not found: {brain_path}")
+
+    cuda_note = cuda_unavailable_note()
+    device_note = (f"\n{cuda_note.strip()}") if device == "cpu" and cuda_note else ""
+    result: SkullStripResult = {
+        "brain_path": str(brain_path),
+        "input_path": str(input_path),
+        "device": device,
+        "_render": (
+            "DISPLAY RULES — follow exactly:\n"
+            "Report the skull stripping result as a compact key-value list:\n"
+            "  Input:  <input_path>\n"
+            "  Output: <brain_path>\n"
+            "  Device: <device>\n"
+            f"Substitute values from the result dict. Omit internal keys.{device_note}\n"
+            "NEXT ACTION: Tell the user the output path and ask what processing "
+            "step to run next (e.g. registration to MNI, tissue segmentation). "
+            "The tool already verified the file exists — do not attempt to recheck it."
+        ),
+    }
+    return result
+
+
+def warmup(device: str = "cuda") -> WarmupResult:
+    """Pre-load the HD-BET model so the first skull_strip is already warm.
+
+    Called automatically when the stack is activated (the workspace pre-warm hook).
+    Starts a persistent inference worker holding the model in memory; subsequent
+    ``skull_strip`` calls on the same device reuse it instead of reloading (~10s
+    saved per call). Best-effort: returns ``warmed: false`` if the model can't load
+    (e.g. no GPU), in which case ``skull_strip`` just loads lazily as before.
+
+    Args:
+        device: Device to warm — ``"cuda"`` (default), ``"cpu"``, or ``"mps"``.
+
+    Returns:
+        ``WarmupResult`` indicating whether a warm worker is now ready.
+    """
+    worker = get_worker(device, device != "cpu", start=True)
+    return {"ok": worker is not None, "device": device, "warmed": worker is not None}
+
+
+def _run_via_subprocess(
+    device: str, use_tta: bool, input_path: Path, stem: str, brain_path: Path
+) -> None:
+    """Run HD-BET in a throwaway subprocess (the fallback / default path).
+
+    Isolates HD-BET from the MCP file descriptors: nnU-Net's multiprocessing
+    workers would otherwise inherit and deadlock on the MCP pipe FDs. The result is
+    written to a tempfile rather than stdout to avoid contamination from nnU-Net's
+    own output bypassing the Python-level redirect.
+    """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
         result_path = tf.name
 
@@ -82,7 +153,7 @@ def skull_strip(
             input=json.dumps(
                 {
                     "device": device,
-                    "use_tta": device != "cpu",
+                    "use_tta": use_tta,
                     "input_path": str(input_path),
                     "stem": stem,
                     "brain_path": str(brain_path),
@@ -112,26 +183,3 @@ def skull_strip(
 
     finally:
         Path(result_path).unlink(missing_ok=True)
-
-    if not brain_path.exists():
-        raise RuntimeError(f"Skull stripping completed but output not found: {brain_path}")
-
-    cuda_note = cuda_unavailable_note()
-    device_note = (f"\n{cuda_note.strip()}") if device == "cpu" and cuda_note else ""
-    result: SkullStripResult = {
-        "brain_path": str(brain_path),
-        "input_path": str(input_path),
-        "device": device,
-        "_render": (
-            "DISPLAY RULES — follow exactly:\n"
-            "Report the skull stripping result as a compact key-value list:\n"
-            "  Input:  <input_path>\n"
-            "  Output: <brain_path>\n"
-            "  Device: <device>\n"
-            f"Substitute values from the result dict. Omit internal keys.{device_note}\n"
-            "NEXT ACTION: Tell the user the output path and ask what processing "
-            "step to run next (e.g. registration to MNI, tissue segmentation). "
-            "The tool already verified the file exists — do not attempt to recheck it."
-        ),
-    }
-    return result
