@@ -33,9 +33,12 @@ dependencies = [
     "mcp>=1.0",
     # torch/torchvision are pulled transitively by hd-bet; declared directly so the
     # CUDA 12.8 index pin below ([tool.uv.sources]) applies (uv sources only bind
-    # direct deps). Keeps the GPU image on cu128 — see [tool.uv] note.
-    "torch",
-    "torchvision",
+    # direct deps). Pinned to 2.7.1 to MATCH FastSurfer's own pin so the container can
+    # share a SINGLE torch + CUDA stack (one ~8 GB nvidia-cu12 set, not two) — the
+    # Dockerfile installs FastSurfer's seg deps into the same venv. Keeps the GPU image
+    # on cu128 — see [tool.uv] note. hd-bet only needs torch>=2.0, so 2.7.1 is fine.
+    "torch==2.7.1",
+    "torchvision==0.22.1",
     # "medmcp-dicom>=0.1",  # uncomment once medmcp-dicom is available
 ]
 

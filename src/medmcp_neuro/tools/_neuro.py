@@ -42,7 +42,9 @@ def cuda_unavailable_note() -> str:
 
     if torch.cuda.is_available():
         return ""
-    cuda_ver = getattr(torch.version, "cuda", None)
+    # torch.version isn't exposed in torch's type stubs; reach it via getattr so strict
+    # pyright stays happy (the attribute is the documented way to read the CUDA build).
+    cuda_ver: str | None = getattr(getattr(torch, "version", None), "cuda", None)
     if cuda_ver is None:
         return (
             " Note: CPU-only torch is installed — GPU inference is not possible."
