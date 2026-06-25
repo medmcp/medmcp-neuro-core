@@ -41,45 +41,55 @@ _NON_T1W_TOKENS: frozenset[str] = frozenset(
     {"flair", "t2w", "t2star", "t2", "dwi", "dti", "swi", "pd", "pdw", "bold", "asl", "angio", "ct"}
 )
 
-# Subcortical + global structures always present in the aseg/DKT stats output.
+# Non-cortical structures FastSurfer segments — the 33 non-cortical classes of the
+# aseg/DKT label set (subcortical nuclei, ventricles, cerebellum, white matter, CSF).
+# These are the *exact* StructName strings FastSurfer writes to the stats file, and
+# therefore the exact values in the "structure" column of the volume CSV (see
+# _parse_aseg_stats — it emits StructName verbatim). Listed in FastSurfer ColorLUT
+# order. There is deliberately no whole-hemisphere cerebral-cortex label (cortex lives
+# in the ctx-*-* parcels below) and no intracranial-volume row (eTIV is a derived
+# measure, not a segmented structure). 33 here + 31*2 cortical = FastSurfer's 95 classes.
 _SUBCORTICAL_LABELS: list[str] = [
-    "total intracranial",
-    "csf",
-    "brain-stem",
-    "left cerebral white matter",
-    "left cerebral cortex",
-    "right cerebral white matter",
-    "right cerebral cortex",
-    "left cerebellum white matter",
-    "left cerebellum cortex",
-    "right cerebellum white matter",
-    "right cerebellum cortex",
-    "left lateral ventricle",
-    "left inferior lateral ventricle",
-    "right lateral ventricle",
-    "right inferior lateral ventricle",
-    "3rd ventricle",
-    "4th ventricle",
-    "left thalamus",
-    "right thalamus",
-    "left caudate",
-    "right caudate",
-    "left putamen",
-    "right putamen",
-    "left pallidum",
-    "right pallidum",
-    "left hippocampus",
-    "right hippocampus",
-    "left amygdala",
-    "right amygdala",
-    "left accumbens area",
-    "right accumbens area",
-    "left ventral DC",
-    "right ventral DC",
+    "Left-Cerebral-White-Matter",
+    "Left-Lateral-Ventricle",
+    "Left-Inf-Lat-Vent",
+    "Left-Cerebellum-White-Matter",
+    "Left-Cerebellum-Cortex",
+    "Left-Thalamus",
+    "Left-Caudate",
+    "Left-Putamen",
+    "Left-Pallidum",
+    "3rd-Ventricle",
+    "4th-Ventricle",
+    "Brain-Stem",
+    "Left-Hippocampus",
+    "Left-Amygdala",
+    "CSF",
+    "Left-Accumbens-area",
+    "Left-VentralDC",
+    "Left-choroid-plexus",
+    "Right-Cerebral-White-Matter",
+    "Right-Lateral-Ventricle",
+    "Right-Inf-Lat-Vent",
+    "Right-Cerebellum-White-Matter",
+    "Right-Cerebellum-Cortex",
+    "Right-Thalamus",
+    "Right-Caudate",
+    "Right-Putamen",
+    "Right-Pallidum",
+    "Right-Hippocampus",
+    "Right-Amygdala",
+    "Right-Accumbens-area",
+    "Right-VentralDC",
+    "Right-choroid-plexus",
+    "WM-hypointensities",
 ]
 
-# Cortical parcels (Desikan-Killiany-Tourville), reported per hemisphere as
-# ctx-lh-* / ctx-rh-* in the stats output.
+# Cortical parcels (Desikan-Killiany-Tourville), one stem per region. In the stats
+# file / volume CSV each appears per hemisphere as ctx-lh-<stem> / ctx-rh-<stem>.
+# The DKT atlas has 31 regions per hemisphere: it merges away the three
+# highly-variable-boundary regions of the Desikan-Killiany atlas (bankssts,
+# frontalpole, temporalpole), so those are deliberately not listed here.
 _CORTICAL_PARCEL_NAMES: list[str] = [
     "caudalanteriorcingulate",
     "caudalmiddlefrontal",
@@ -110,8 +120,6 @@ _CORTICAL_PARCEL_NAMES: list[str] = [
     "superiorparietal",
     "superiortemporal",
     "supramarginal",
-    "frontalpole",
-    "temporalpole",
     "transversetemporal",
     "insula",
 ]
@@ -168,18 +176,14 @@ def _find_fastsurfer() -> str:
 
 
 def _fastsurfer_python() -> str | None:
-    """Return the interpreter for FastSurfer's isolated venv, if available.
+    """Return the interpreter to run FastSurfer with (``run_fastsurfer.sh --py``).
 
-    FastSurfer pins its own torch, so it lives in a separate venv
-    (/opt/fastsurfer-venv) and run_fastsurfer.sh is pointed at it via ``--py``.
-    Overridable with $FASTSURFER_PYTHON; returns None to fall back to the script's
-    default interpreter (e.g. in tests / non-container installs).
+    FastSurfer pins torch==2.7.1, the same version the app venv uses, so its seg deps
+    are installed into that one venv and the container points ``$FASTSURFER_PYTHON`` at
+    it. Returns that override, or ``None`` to fall back to run_fastsurfer.sh's own
+    interpreter detection (e.g. in tests / non-container installs).
     """
-    override = os.environ.get("FASTSURFER_PYTHON")
-    if override:
-        return override
-    candidate = Path("/opt/fastsurfer-venv/bin/python")
-    return str(candidate) if candidate.is_file() else None
+    return os.environ.get("FASTSURFER_PYTHON") or None
 
 
 def _resolve_device(device: str) -> str:
@@ -197,12 +201,21 @@ def _resolve_device(device: str) -> str:
     return "cpu"
 
 
+# Corpus-callosum SegIds (CC_Posterior..CC_Anterior). FastSurfer's seg-only segstats
+# requests these with --empty, but the labels are only populated by the surface
+# pipeline (--seg_only uses aseg.auto_noCCseg.mgz, "without corpus callosum labels"),
+# so they always come back as 0-voxel / 0-volume rows. Dropping them keeps the CSV to
+# structures that were actually measured (and matches list_brain_segmentation_labels).
+_CC_SEGIDS: frozenset[int] = frozenset({251, 252, 253, 254, 255})
+
+
 def _parse_aseg_stats(stats_path: Path) -> list[tuple[str, float]]:
     """Parse a FreeSurfer/FastSurfer .stats file into (structure, volume_mm3) rows.
 
     Stats data lines are whitespace-separated with the columns described in the
-    ``# ColHeaders`` line; volume is ``Volume_mm3`` and the name is ``StructName``.
-    Comment lines start with '#'.
+    ``# ColHeaders`` line (Index SegId NVoxels Volume_mm3 StructName ...); volume is
+    ``Volume_mm3`` and the name is ``StructName``. Comment lines start with '#'. The
+    always-empty corpus-callosum rows (see ``_CC_SEGIDS``) are skipped.
     """
     rows: list[tuple[str, float]] = []
     with open(stats_path) as fh:
@@ -214,11 +227,47 @@ def _parse_aseg_stats(stats_path: Path) -> list[tuple[str, float]]:
             if len(cols) < 5:
                 continue
             try:
+                seg_id = int(cols[1])
                 volume = float(cols[3])
             except ValueError:
                 continue
+            if seg_id in _CC_SEGIDS:  # always 0 in seg-only mode
+                continue
             rows.append((cols[4], volume))
     return rows
+
+
+def _parse_measure(stats_path: Path, short_name: str) -> float | None:
+    """Return a global ``# Measure`` value from a FastSurfer/FreeSurfer stats file.
+
+    Measure lines have the form::
+
+        # Measure BrainSeg, BrainSegVol, Brain Segmentation Volume, 1272111.098385, mm^3
+
+    i.e. ``# Measure <key>, <short_name>, <description>, <value>, <unit>`` — the value
+    is the 4th comma-separated field. Unlike the segmented structures, these are
+    derived whole-brain measures computed without Talairach registration (so no
+    FreeSurfer license is needed).
+
+    Args:
+        stats_path: Path to the .stats file.
+        short_name: The measure's short name to match (e.g. ``"BrainSegVol"``).
+
+    Returns:
+        The measure value in mm³, or ``None`` if the measure is absent/unparseable.
+    """
+    prefix = "# Measure "
+    with open(stats_path) as fh:
+        for line in fh:
+            if not line.startswith(prefix):
+                continue
+            fields = [f.strip() for f in line[len(prefix) :].split(",")]
+            if len(fields) >= 4 and fields[1] == short_name:
+                try:
+                    return float(fields[3])
+                except ValueError:
+                    return None
+    return None
 
 
 def _read_voxel_zooms(input_path: Path) -> tuple[float, ...]:
@@ -427,11 +476,19 @@ def segment_brain(
                 flush=True,
             )
 
-        # Volume CSV from FastSurfer's own stats (no FreeSurfer mri_segstats).
+        # Volume CSV from FastSurfer's own stats (no FreeSurfer mri_segstats). Append
+        # BrainSegVol (total brain-segmentation volume) as a final row: it's a derived
+        # whole-brain measure FastSurfer computes license-free, useful for normalising
+        # structure volumes by head size across subjects (eTIV would need Talairach
+        # registration, which requires a FreeSurfer license, so we don't compute it).
+        structure_rows = _parse_aseg_stats(stats_path)
+        brain_seg_vol = _parse_measure(stats_path, "BrainSegVol")
         with open(volumes_path, "w", newline="") as fh:
             writer = csv.writer(fh)
             writer.writerow(["structure", "volume_mm3"])
-            writer.writerows(_parse_aseg_stats(stats_path))
+            writer.writerows(structure_rows)
+            if brain_seg_vol is not None:
+                writer.writerow(["BrainSegVol", brain_seg_vol])
 
     result: SegmentResult = {
         "seg_path": str(seg_path),
@@ -451,8 +508,13 @@ def segment_brain(
             "Substitute values from the result dict. Omit internal keys.\n"
             "NEXT ACTION: Tell the user the output paths. If they want a specific "
             "structure (e.g. thalamus), read the CSV at volumes_path and report the "
-            "matching row(s). If the image was registered to a template, offer to warp "
-            "the label map using apply_transform with interpolation=NearestNeighbor."
+            "matching row(s) — the 'structure' column uses FastSurfer StructNames such "
+            "as Left-Thalamus / Right-Thalamus, and ctx-lh-<parcel> / ctx-rh-<parcel> for "
+            "cortex (call list_brain_segmentation_labels for the exact names). The CSV also "
+            "has a final 'BrainSegVol' row (total brain-segmentation volume, mm3) — use it "
+            "to normalise structure volumes by head size when comparing across subjects. If "
+            "the image was registered to a template, offer to warp the label map using "
+            "apply_transform with interpolation=NearestNeighbor."
         ),
     }
     return result
@@ -479,9 +541,15 @@ def list_brain_segmentation_labels(parc: bool = True) -> LabelListResult:
             "DISPLAY RULES — follow exactly:\n"
             f"State that FastSurfer labels {total} structures "
             f"({'with' if parc else 'without'} cortical parcellation).\n"
-            "List a few relevant subcortical structures (e.g. left/right thalamus) "
-            "rather than dumping the full list unless asked.\n"
-            "Cortical parcels are reported per hemisphere as ctx-lh-<name> / ctx-rh-<name>."
+            "The names in 'subcortical_and_global' are the exact, case-sensitive "
+            "FastSurfer StructNames as they appear in the volume CSV (e.g. Left-Thalamus, "
+            "Right-Hippocampus, CSF, Brain-Stem) — match them verbatim when searching "
+            "volumes_path.\n"
+            "List a few relevant ones (e.g. Left-Thalamus / Right-Thalamus) rather than "
+            "dumping the full list unless asked.\n"
+            "Cortical parcels in 'cortical_parcels' are bare DKT region stems; in the CSV "
+            "each appears per hemisphere as ctx-lh-<stem> / ctx-rh-<stem> "
+            "(e.g. ctx-lh-superiorfrontal)."
         ),
     }
     return result

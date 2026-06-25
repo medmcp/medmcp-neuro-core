@@ -34,21 +34,29 @@ seg-only) to label cortical and subcortical structures and produce a per-structu
    only re-run with `force=True` if the user explicitly accepts degraded quality.
 4. **Report the requested structure.** When the user asked for a specific volume,
    read the CSV at `volumes_path` and report the matching row(s) — e.g. for the
-   thalamus, the `left thalamus` and `right thalamus` rows (values in **mm³**).
-   Offer the full CSV for other structures rather than dumping every row.
+   thalamus, the `Left-Thalamus` and `Right-Thalamus` rows (values in **mm³**).
+   Match the structure names verbatim (see below). Offer the full CSV for other
+   structures rather than dumping every row.
 
 ## Getting a specific structure's volume
 
-The volumes CSV has columns `structure,volume_mm3`. Subcortical names follow the
-aseg convention (`left thalamus`, `right hippocampus`, …); cortical parcels are
-`ctx-lh-<name>` / `ctx-rh-<name>` (Desikan-Killiany-Tourville). Call
+The volumes CSV has columns `structure,volume_mm3`. The `structure` column holds
+FastSurfer's **exact StructNames** (case-sensitive, hyphenated): non-cortical
+structures follow the aseg convention (`Left-Thalamus`, `Right-Hippocampus`, `CSF`,
+`Brain-Stem`, …) and cortical parcels are `ctx-lh-<stem>` / `ctx-rh-<stem>`
+(Desikan-Killiany-Tourville, e.g. `ctx-lh-superiorfrontal`). Match them verbatim — a
+lowercased/spaced guess like `left thalamus` will not be found. Call
 `list_brain_segmentation_labels()` to see the exact names before searching the CSV.
 
 ## Gotchas
 
-- **Comparing volumes across subjects** — raw mm³ volumes scale with head size. If
-  the user is comparing subjects or cohorts, suggest normalising by `total
-  intracranial` (ICV), which is included in the CSV.
+- **Comparing volumes across subjects** — raw mm³ volumes scale with head size, so
+  for cross-subject or cohort comparisons normalise by head size. The CSV's final
+  `BrainSegVol` row (total brain-segmentation volume, mm³) is the normaliser to use:
+  report each structure as a fraction of `BrainSegVol`. Note this is brain-segmentation
+  volume, **not** eTIV/ICV — true eTIV needs a Talairach registration that requires a
+  FreeSurfer license, which this license-free seg-only pipeline deliberately avoids;
+  `BrainSegVol` is the license-free equivalent for head-size normalisation.
 - **Output is a FreeSurfer `.mgz` label map** (`*_dseg.mgz`) — the workspace viewer
   renders MGZ natively, and you can overlay it on the input by dragging it onto the
   image. To warp it into template space, use `apply_transform` with

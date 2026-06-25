@@ -7,7 +7,7 @@ import nibabel as nib
 import numpy as np
 import pytest
 
-from medmcp_neuro.tools.segmentation import segment_brain
+from medmcp_neuro.tools.segmentation import list_brain_segmentation_labels, segment_brain
 
 _SUBPROCESS_RUN = "medmcp_neuro.tools.segmentation.subprocess.run"
 _FIND_FASTSURFER = "medmcp_neuro.tools.segmentation._find_fastsurfer"
@@ -25,9 +25,11 @@ def _write_nifti(path: Path, zooms: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
 _FAKE_STATS = (
     "# Title Segmentation Statistics\n"
+    "# Measure BrainSeg, BrainSegVol, Brain Segmentation Volume, 1200000.5, mm^3\n"
     "# ColHeaders Index SegId NVoxels Volume_mm3 StructName normMean\n"
     "  1  10  9000  9123.4  Left-Thalamus   95.0\n"
     "  2  49  8800  8900.1  Right-Thalamus  94.5\n"
+    "  3 251     0     0.000  CC_Posterior    0.0\n"  # always empty in seg-only mode
 )
 
 
@@ -133,6 +135,49 @@ def test_volumes_csv_written_from_stats(tmp_path: Path) -> None:
     assert "structure,volume_mm3" in content
     assert "Left-Thalamus,9123.4" in content
     assert "Right-Thalamus,8900.1" in content
+
+
+def test_empty_corpus_callosum_rows_dropped(tmp_path: Path) -> None:
+    """CC rows (SegId 251-255) are always 0 in seg-only mode and must not reach the CSV."""
+    result, _ = _run_with_mock(tmp_path)
+    lines = Path(str(result["volumes_path"])).read_text().splitlines()
+    structures = [row.split(",")[0] for row in lines[1:]]  # skip header
+    # Only the two real structures + the appended BrainSegVol; the CC row is filtered.
+    assert structures == ["Left-Thalamus", "Right-Thalamus", "BrainSegVol"]
+
+
+def test_brain_seg_vol_appended_for_normalization(tmp_path: Path) -> None:
+    """BrainSegVol (license-free head-size measure) is parsed and appended as a CSV row."""
+    result, _ = _run_with_mock(tmp_path)
+    content = Path(str(result["volumes_path"])).read_text()
+    assert "BrainSegVol,1200000.5" in content
+
+
+def test_brain_seg_vol_absent_is_tolerated(tmp_path: Path) -> None:
+    """A stats file without the BrainSegVol measure still yields a CSV (no BrainSegVol row)."""
+    stats_no_measure = (
+        "# ColHeaders Index SegId NVoxels Volume_mm3 StructName normMean\n"
+        "  1  10  9000  9123.4  Left-Thalamus   95.0\n"
+    )
+
+    def mock(cmd: list[str], *, capture_output: bool, text: bool, timeout: int) -> MagicMock:
+        Path(cmd[cmd.index("--asegdkt_segfile") + 1]).touch()
+        Path(cmd[cmd.index("--asegdkt_statsfile") + 1]).write_text(stats_no_measure)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = ""
+        result.stderr = ""
+        return result
+
+    inp = _write_nifti(tmp_path / "sub-01_T1w.nii.gz")
+    with (
+        patch(_FIND_FASTSURFER, return_value=_FAKE_BINARY),
+        patch(_SUBPROCESS_RUN, side_effect=mock),
+    ):
+        result = segment_brain(inp, device="cpu")
+    content = Path(str(result["volumes_path"])).read_text()
+    assert "Left-Thalamus,9123.4" in content
+    assert "BrainSegVol" not in content
 
 
 # --- return dict ---
@@ -275,3 +320,42 @@ def test_unreadable_header_skips_resolution_check(tmp_path: Path) -> None:
         result = segment_brain(inp, device="cpu")
     assert any("Could not read voxel resolution" in w for w in result["warnings"])
     assert result["seg_path"]
+
+
+# --- label listing (must mirror FastSurfer's 95-class aseg/DKT label set) ---
+
+
+def test_label_list_counts_with_parcellation() -> None:
+    """With cortical parcellation: 33 non-cortical + 31*2 cortical = FastSurfer's 95."""
+    result = list_brain_segmentation_labels(parc=True)
+    assert len(result["subcortical_and_global"]) == 33
+    assert len(result["cortical_parcels"]) == 31
+    assert result["total_structures"] == 95
+
+
+def test_label_list_counts_without_parcellation() -> None:
+    """Without parcellation: only the 33 non-cortical structures, no cortical parcels."""
+    result = list_brain_segmentation_labels(parc=False)
+    assert result["total_structures"] == 33
+    assert result["cortical_parcels"] == []
+
+
+def test_label_list_uses_raw_fastsurfer_structnames() -> None:
+    """Advertised names are FastSurfer's exact StructNames (the CSV 'structure' values)."""
+    names = set(list_brain_segmentation_labels()["subcortical_and_global"])
+    # Real StructNames written to the stats file / CSV.
+    assert {"Left-Thalamus", "Right-Thalamus", "CSF", "WM-hypointensities"} <= names
+    # Names that are not segmentation classes (or were the old prettified form) are gone.
+    assert "total intracranial" not in names  # eTIV is a measure, not a structure row
+    assert "left thalamus" not in names  # old lowercase/spaced form never matched the CSV
+    assert "Left-Cerebral-Cortex" not in names  # cortex lives in the ctx-* parcels
+
+
+def test_label_list_cortical_stems_are_bare() -> None:
+    """Cortical parcels are bare DKT stems (the CSV prefixes them ctx-lh-/ctx-rh-)."""
+    cortical = list_brain_segmentation_labels()["cortical_parcels"]
+    assert "superiorfrontal" in cortical
+    assert not any(stem.startswith("ctx-") for stem in cortical)
+    # DKT merges these away; they must not reappear.
+    assert "frontalpole" not in cortical
+    assert "temporalpole" not in cortical

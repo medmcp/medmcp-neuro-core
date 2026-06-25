@@ -33,7 +33,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev \
+ && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
+ && find /app/.venv -name '*.a' -delete
 
 # Python downloaders (HD-BET, FastSurfer checkpoints) use requests/urllib, which
 # trust certifi's bundle — not the system store — so they also need pointing at the
@@ -48,27 +50,33 @@ RUN /app/.venv/bin/python -c "from HD_BET.checkpoint_download import maybe_downl
 
 # ── FastSurfer (segment_brain) ────────────────────────────────────────────────
 # Whole-brain segmentation via FastSurferVINN, seg-only (no FreeSurfer license).
-# FastSurfer pins its own torch (2.7.1) which conflicts with the cu128 torch +
-# HD-BET in /app/.venv, so it gets an ISOLATED venv (still GPU/cu128 via
-# --torch-backend). segment_brain runs run_fastsurfer.sh with --py pointing here,
-# so the two torch stacks never share a process. Subprocess-isolated either way.
+# FastSurfer pins torch==2.7.1 — the SAME version /app/.venv uses (pinned in
+# pyproject) — so its seg deps install into that ONE venv instead of a second one,
+# sharing a single ~8 GB torch + CUDA stack. run_fastsurfer.sh runs with
+# --py /app/.venv/bin/python (FASTSURFER_PYTHON below); subprocess-isolated either way.
 ARG FASTSURFER_VERSION=v2.5.4
+# Everything below in one layer so the cleanup (.git, bytecode, static libs) actually
+# shrinks the image instead of just shadowing files in an earlier layer.
 # seg-only: drop scikit-sparse — a recon_surf/surface-pipeline dep (needs SuiteSparse,
 # and the pinned version isn't published) that is never imported on the seg path.
-RUN git clone --depth 1 --branch ${FASTSURFER_VERSION} \
+# Bake only the FastSurferVINN (asegdkt) checkpoint with --vinn: the seg-only path never
+# runs CerebNet/HypVINN/CC, so --all would download those for nothing. Offline at runtime.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    git clone --depth 1 --branch ${FASTSURFER_VERSION} \
         https://github.com/Deep-MI/FastSurfer.git /opt/FastSurfer \
- && uv venv --python 3.12 /opt/fastsurfer-venv \
  && grep -viE '^\s*scikit-sparse' /opt/FastSurfer/requirements.txt > /tmp/fs-seg-req.txt \
- && uv pip install --python /opt/fastsurfer-venv/bin/python \
-        --torch-backend=cu128 --index-strategy unsafe-best-match \
-        -r /tmp/fs-seg-req.txt
-# Bake the inference checkpoints so segment_brain runs offline (like HD-BET).
-# PYTHONPATH so the script can import the FastSurferCNN package (ENV is set below).
-RUN PYTHONPATH=/opt/FastSurfer /opt/fastsurfer-venv/bin/python \
-        /opt/FastSurfer/FastSurferCNN/download_checkpoints.py --all
+ && uv pip install --python /app/.venv/bin/python \
+        --extra-index-url https://download.pytorch.org/whl/cu128 \
+        --index-strategy unsafe-best-match -r /tmp/fs-seg-req.txt \
+ && PYTHONPATH=/opt/FastSurfer /app/.venv/bin/python \
+        /opt/FastSurfer/FastSurferCNN/download_checkpoints.py --vinn \
+ && rm -rf /opt/FastSurfer/.git \
+ && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
+ && find /app/.venv -name '*.a' -delete
 
 ENV PATH=/opt/FastSurfer:/app/.venv/bin:$PATH \
     FASTSURFER_HOME=/opt/FastSurfer \
+    FASTSURFER_PYTHON=/app/.venv/bin/python \
     PYTHONPATH=/opt/FastSurfer \
     UV_NO_SYNC=1
 
