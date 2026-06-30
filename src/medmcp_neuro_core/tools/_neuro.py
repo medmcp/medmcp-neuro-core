@@ -1,4 +1,4 @@
-"""Shared internal utilities for medmcp-neuro tools."""
+"""Shared internal utilities for medmcp-neuro-core tools."""
 
 import os
 import shutil

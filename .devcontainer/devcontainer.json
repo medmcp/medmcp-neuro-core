@@ -1,12 +1,12 @@
 {
-  "name": "medmcp-neuro",
+  "name": "medmcp-neuro-core",
   "build": {
     "dockerfile": "Dockerfile",
     "context": "..",
     "args": { "BASE_IMAGE": "medmcp-base:dev" }
   },
-  "workspaceFolder": "/workspaces/medmcp-neuro",
-  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/medmcp-neuro,type=bind",
+  "workspaceFolder": "/workspaces/medmcp-neuro-core",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/medmcp-neuro-core,type=bind",
   "mounts": [
     "source=${localEnv:XDG_RUNTIME_DIR}/docker.sock,target=/var/run/docker.sock,type=bind"
   ],

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Dev container for medmcp-neuro — the shared medmcp-base + dev toolchain (uv is
+# Dev container for medmcp-neuro-core — the shared medmcp-base + dev toolchain (uv is
 # already in the base; add just, git, build tools, and the Docker CLI so the
 # stack image can be built/tested from inside). No Node: this stack has no
 # frontend. Python deps are synced at postCreate against the mounted source.
@@ -39,4 +39,4 @@ RUN curl --proto '=https' --tlsv1.2 -fsSL https://just.systems/install.sh \
     | bash -s -- --to /usr/local/bin
 COPY --from=docker:cli /usr/local/bin/docker /usr/local/bin/docker
 
-WORKDIR /workspaces/medmcp-neuro
+WORKDIR /workspaces/medmcp-neuro-core

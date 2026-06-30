@@ -5,7 +5,7 @@ import tempfile
 import urllib.request
 from pathlib import Path
 
-_CACHE_DIR = Path.home() / ".medmcp_neuro" / "templates"
+_CACHE_DIR = Path.home() / ".medmcp_neuro_core" / "templates"
 _MNI152_FILENAME = "MNI152NLin2009cAsym_res-01_T1w.nii.gz"
 _MNI152_BRAIN_FILENAME = "MNI152NLin2009cAsym_res-01_desc-brain_T1w.nii.gz"
 # templateflow public S3 — stable, versioned, widely used
@@ -19,31 +19,16 @@ _MNI152_BRAIN_URL = (
 )
 
 
-def _fsl_mni152(skull_stripped: bool = False) -> Path | None:
-    """Return MNI152 1 mm T1w from ``$FSLDIR`` if available."""
-    import os
-
-    fsldir = os.environ.get("FSLDIR")
-    if not fsldir:
-        return None
-    std = Path(fsldir) / "data" / "standard"
-    if skull_stripped:
-        candidates = [std / "MNI152_T1_1mm_brain.nii.gz"]
-    else:
-        candidates = [
-            std / "MNI152_T1_1mm.nii.gz",
-            std / "MNI152_T1_1mm_brain.nii.gz",
-        ]
-    return next((p for p in candidates if p.exists()), None)
-
-
 def get_mni152_1mm(skull_stripped: bool = False) -> Path:
     """Return the MNI152NLin2009cAsym 1 mm T1w template, downloading on first use.
 
     Resolution order:
-        1. Cached copy in ``~/.medmcp_neuro/templates/``.
-        2. FSL standard library (``$FSLDIR/data/standard/``).
-        3. Download from templateflow S3 and cache.
+        1. Cached copy in ``~/.medmcp_neuro_core/templates/``.
+        2. Download from templateflow S3 and cache.
+
+    There is deliberately no ``$FSLDIR`` fallback: FSL ships the MNI152NLin6Asym
+    (FNIRT) template, a different version than the MNI152NLin2009cAsym this function
+    promises, so returning it would mislabel the registration output space.
 
     Args:
         skull_stripped: When ``True``, return the brain-extracted (``desc-brain``)
@@ -60,13 +45,9 @@ def get_mni152_1mm(skull_stripped: bool = False) -> Path:
     if cached.exists():
         return cached
 
-    fsl = _fsl_mni152(skull_stripped)
-    if fsl is not None:
-        return fsl
-
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     print(
-        f"[medmcp-neuro] Downloading MNI152 template to {cached} …",
+        f"[medmcp-neuro-core] Downloading MNI152 template to {cached} …",
         file=sys.stderr,
         flush=True,
     )

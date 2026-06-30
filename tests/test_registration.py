@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medmcp_neuro.tools.registration import (
+from medmcp_neuro_core.tools.registration import (
     ApplyTransformResult,
     CoregisterResult,
     RegisterToTemplateResult,
@@ -16,9 +16,9 @@ from medmcp_neuro.tools.registration import (
     register_to_template,
 )
 
-_SUBPROCESS_RUN = "medmcp_neuro.tools.registration.subprocess.run"
-_GET_TEMPLATE = "medmcp_neuro.tools.registration.get_mni152_1mm"
-_CHECK_ANTSPY = "medmcp_neuro.tools.registration._check_antspy"
+_SUBPROCESS_RUN = "medmcp_neuro_core.tools.registration.subprocess.run"
+_GET_TEMPLATE = "medmcp_neuro_core.tools.registration.get_mni152_1mm"
+_CHECK_ANTSPY = "medmcp_neuro_core.tools.registration._check_antspy"
 
 
 def _mock_register(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMock:

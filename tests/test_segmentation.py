@@ -7,10 +7,10 @@ import nibabel as nib
 import numpy as np
 import pytest
 
-from medmcp_neuro.tools.segmentation import list_brain_segmentation_labels, segment_brain
+from medmcp_neuro_core.tools.segmentation import list_brain_segmentation_labels, segment_brain
 
-_SUBPROCESS_RUN = "medmcp_neuro.tools.segmentation.subprocess.run"
-_FIND_FASTSURFER = "medmcp_neuro.tools.segmentation._find_fastsurfer"
+_SUBPROCESS_RUN = "medmcp_neuro_core.tools.segmentation.subprocess.run"
+_FIND_FASTSURFER = "medmcp_neuro_core.tools.segmentation._find_fastsurfer"
 _FAKE_BINARY = "/opt/FastSurfer/run_fastsurfer.sh"
 
 
