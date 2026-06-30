@@ -7,8 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import TypedDict
 
-from medmcp_neuro.tools._hdbet_worker import WorkerError, get_worker, persist_enabled
-from medmcp_neuro.tools._neuro import Device, cuda_unavailable_note, nii_stem, resolve_device
+from medmcp_neuro_core.tools._hdbet_worker import WorkerError, get_worker, persist_enabled
+from medmcp_neuro_core.tools._neuro import Device, cuda_unavailable_note, nii_stem, resolve_device
 
 
 class SkullStripResult(TypedDict):
@@ -72,7 +72,7 @@ def skull_strip(
 
     out_dir.mkdir(parents=True, exist_ok=True)
     print(
-        f"[medmcp-neuro] skull_strip: starting HD-BET on {resolved}...",
+        f"[medmcp-neuro-core] skull_strip: starting HD-BET on {resolved}...",
         file=sys.stderr,
         flush=True,
     )
@@ -120,9 +120,9 @@ def warmup(device: Device = "auto") -> WarmupResult:
 
     Called automatically when the stack is activated (the workspace pre-warm hook).
     Starts a persistent inference worker holding the model in memory; subsequent
-    ``skull_strip`` calls on the same device reuse it instead of reloading (~10s
-    saved per call). Best-effort: returns ``warmed: false`` if the model can't load
-    (e.g. no GPU), in which case ``skull_strip`` just loads lazily as before.
+    ``skull_strip`` calls on the same device reuse it instead of reloading, saving
+    the model-load cost per call. Best-effort: returns ``warmed: false`` if the model
+    can't load (e.g. no GPU), in which case ``skull_strip`` just loads lazily as before.
 
     ``device`` follows the shared convention and defaults to ``"auto"`` — the same
     default as ``skull_strip``, so the device warmed here matches the one a later
@@ -155,7 +155,7 @@ def _run_via_subprocess(
 
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "medmcp_neuro.tools._run_hdbet"],
+            [sys.executable, "-m", "medmcp_neuro_core.tools._run_hdbet"],
             input=json.dumps(
                 {
                     "device": device,

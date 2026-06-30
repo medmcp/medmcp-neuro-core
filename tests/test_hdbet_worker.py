@@ -11,8 +11,13 @@ from unittest.mock import patch
 
 import pytest
 
-from medmcp_neuro.tools import _hdbet_worker, skull_strip
-from medmcp_neuro.tools._hdbet_worker import HdbetWorker, WorkerError, get_worker, shutdown_worker
+from medmcp_neuro_core.tools import _hdbet_worker, skull_strip
+from medmcp_neuro_core.tools._hdbet_worker import (
+    HdbetWorker,
+    WorkerError,
+    get_worker,
+    shutdown_worker,
+)
 
 _FAKE = Path(__file__).parent / "fake_hdbet_worker.py"
 _FAKE_CMD = [sys.executable, str(_FAKE)]
@@ -95,7 +100,7 @@ def test_skull_strip_uses_warm_worker(monkeypatch: pytest.MonkeyPatch, tmp_path:
     inp = tmp_path / "t1.nii.gz"
     inp.touch()
     with patch(
-        "medmcp_neuro.tools.skull_strip.subprocess.run",
+        "medmcp_neuro_core.tools.skull_strip.subprocess.run",
         side_effect=AssertionError("should have used the worker, not the subprocess"),
     ):
         result = skull_strip.skull_strip(inp, device="cpu")
@@ -123,7 +128,7 @@ def test_skull_strip_falls_back_when_worker_dies(
     inp = tmp_path / "t1.nii.gz"
     inp.touch()
     with (
-        patch("medmcp_neuro.tools.skull_strip.subprocess.run", side_effect=_fake_subprocess),
+        patch("medmcp_neuro_core.tools.skull_strip.subprocess.run", side_effect=_fake_subprocess),
         pytest.raises(RuntimeError, match="subprocess fallback reached"),
     ):
         skull_strip.skull_strip(inp, device="cpu")

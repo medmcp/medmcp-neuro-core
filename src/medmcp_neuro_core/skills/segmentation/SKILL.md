@@ -61,7 +61,7 @@ lowercased/spaced guess like `left thalamus` will not be found. Call
   renders MGZ natively, and you can overlay it on the input by dragging it onto the
   image. To warp it into template space, use `apply_transform` with
   `interpolation="NearestNeighbor"` (it's an integer label map).
-- **Runtime** — on GPU a subject is minutes; on CPU it can be much longer. The
+- **Runtime** — segmentation is substantially faster on GPU than on CPU. The
   result reports which `device` was used.
 - **T1w only** — FastSurfer is not contrast-agnostic. For heterogeneous/clinical
   multi-contrast cohorts, flag that a contrast-robust method may be more appropriate.

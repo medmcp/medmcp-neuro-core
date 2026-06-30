@@ -1,9 +1,9 @@
 [build-system]
-requires = ["uv_build"]
+requires = ["uv_build>=0.11.6,<0.12"]
 build-backend = "uv_build"
 
 [project]
-name = "medmcp-neuro"
+name = "medmcp-neuro-core"
 version = "0.1.0"
 description = "Neuro imaging tools for the medmcp ecosystem."
 readme = "README.md"
@@ -43,18 +43,18 @@ dependencies = [
 ]
 
 [project.scripts]
-medmcp-neuro = "medmcp_neuro.server:main"
+medmcp-neuro-core = "medmcp_neuro_core.server:main"
 
 [project.entry-points."medmcp.stacks"]
-medmcp-neuro = "medmcp_neuro.server:server_config"
+medmcp-neuro-core = "medmcp_neuro_core.server:server_config"
 
 # How a downstream "core" package declares this package as an optional extra:
 # [project.optional-dependencies]
-# neuro = ["medmcp-neuro>=0.1"]
+# neuro = ["medmcp-neuro-core>=0.1"]
 
 [project.urls]
-Homepage = "https://github.com/medmcp/medmcp-neuro"
-Issues = "https://github.com/medmcp/medmcp-neuro/issues"
+Homepage = "https://github.com/medmcp/medmcp-neuro-core"
+Issues = "https://github.com/medmcp/medmcp-neuro-core/issues"
 
 # Pin git-sourced medmcp packages during development:
 # [tool.uv.sources]
@@ -122,7 +122,7 @@ include = ["src", "tests"]
 # _run_ants.py and _hdbet_serve.py are subprocess entry points whose heavy deps
 # (ANTsPy / HD-BET + nnU-Net) ship partial stubs that cause spurious
 # reportUnknownVariableType errors throughout — exclude rather than annotate each line.
-exclude = ["src/medmcp_neuro/tools/_run_ants.py", "src/medmcp_neuro/tools/_hdbet_serve.py"]
+exclude = ["src/medmcp_neuro_core/tools/_run_ants.py", "src/medmcp_neuro_core/tools/_hdbet_serve.py"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 

@@ -4,9 +4,9 @@ from unittest.mock import patch
 
 import pytest
 
-from medmcp_neuro.tools._neuro import Device, resolve_device
+from medmcp_neuro_core.tools._neuro import Device, resolve_device
 
-_DETECT = "medmcp_neuro.tools._neuro.detect_devices"
+_DETECT = "medmcp_neuro_core.tools._neuro.detect_devices"
 
 
 @pytest.mark.parametrize("device", ["cuda", "mps", "cpu"])

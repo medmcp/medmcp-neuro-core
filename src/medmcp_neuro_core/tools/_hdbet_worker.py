@@ -29,7 +29,7 @@ from typing import cast
 _START_TIMEOUT_SEC: float = 600.0
 # Inference upper bound (mirrors the per-call subprocess timeout).
 _RUN_TIMEOUT_SEC: float = 3600.0
-_WORKER_MODULE: str = "medmcp_neuro.tools._hdbet_serve"
+_WORKER_MODULE: str = "medmcp_neuro_core.tools._hdbet_serve"
 
 
 class WorkerError(RuntimeError):

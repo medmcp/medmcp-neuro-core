@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 from typing import TypedDict
 
-from medmcp_neuro.tools._neuro import (
+from medmcp_neuro_core.tools._neuro import (
     Device,
     cuda_unavailable_note,
     find_binary,
@@ -175,7 +175,7 @@ def _find_fastsurfer() -> str:
             if candidate.is_file() and os.access(str(candidate), os.X_OK):
                 return str(candidate)
         raise RuntimeError(
-            "run_fastsurfer.sh not found. The medmcp-neuro image installs FastSurfer "
+            "run_fastsurfer.sh not found. The medmcp-neuro-core image installs FastSurfer "
             "at /opt/FastSurfer; set $FASTSURFER_HOME or $RUN_FASTSURFER otherwise."
         )
     return binary
@@ -401,7 +401,7 @@ def segment_brain(
 
     warnings = _check_input(input_path, force=force)
     for warning in warnings:
-        print(f"[medmcp-neuro] segment: WARNING: {warning}", file=sys.stderr, flush=True)
+        print(f"[medmcp-neuro-core] segment: WARNING: {warning}", file=sys.stderr, flush=True)
 
     binary = _find_fastsurfer()
     resolved_device = resolve_device(device)
@@ -441,7 +441,7 @@ def segment_brain(
         if fs_python:
             cmd += ["--py", fs_python]
         print(
-            f"[medmcp-neuro] segment: running FastSurfer on {input_path.name} "
+            f"[medmcp-neuro-core] segment: running FastSurfer on {input_path.name} "
             f"(device={resolved_device})...",
             file=sys.stderr,
             flush=True,
@@ -461,7 +461,7 @@ def segment_brain(
             )
         if proc.returncode != 0:
             print(
-                f"[medmcp-neuro] segment: FastSurfer exited {proc.returncode} but the "
+                f"[medmcp-neuro-core] segment: FastSurfer exited {proc.returncode} but the "
                 "segmentation and stats were produced; continuing.",
                 file=sys.stderr,
                 flush=True,

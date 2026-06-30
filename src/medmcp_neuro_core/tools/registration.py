@@ -8,8 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from medmcp_neuro.tools._neuro import nii_stem
-from medmcp_neuro.tools._template import get_mni152_1mm
+from medmcp_neuro_core.tools._neuro import nii_stem
+from medmcp_neuro_core.tools._template import get_mni152_1mm
 
 _MNI_SPACE = "MNI152NLin2009cAsym"
 _TIMEOUT_FAST = 3600  # rigid / similarity / affine / synquick (≤1 h)
@@ -86,7 +86,7 @@ def _run_antspy(payload: dict[str, object], timeout: int) -> dict[str, object]:
 
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "medmcp_neuro.tools._run_ants"],
+            [sys.executable, "-m", "medmcp_neuro_core.tools._run_ants"],
             input=json.dumps({**payload, "result_path": result_path}),
             capture_output=True,
             text=True,
@@ -144,7 +144,7 @@ def register_to_template(
     (the Python interface to ANTs — installed automatically as a package dependency,
     no separate binary install required). On first use the MNI152NLin2009cAsym 1 mm
     template is downloaded from the templateflow S3 bucket and cached in
-    ``~/.medmcp_neuro/templates/``; subsequent calls use the cached copy. A custom
+    ``~/.medmcp_neuro_core/templates/``; subsequent calls use the cached copy. A custom
     template can be supplied via ``template_path``.
 
     Timing varies with image size and hardware; ``syn`` is significantly slower than the others.
@@ -206,7 +206,7 @@ def register_to_template(
     timeout = _TIMEOUT_SYN if transform_type == "syn" else _TIMEOUT_FAST
 
     print(
-        f"[medmcp-neuro] register_to_template: ANTsPy {ants_type} …",
+        f"[medmcp-neuro-core] register_to_template: ANTsPy {ants_type} …",
         file=sys.stderr,
         flush=True,
     )
@@ -337,7 +337,7 @@ def coregister(
         prefix = str(out_dir / f"{stem}_to_{space}_")
 
         print(
-            f"[medmcp-neuro] coregister: {moving.name} → {fixed_path.name} …",
+            f"[medmcp-neuro-core] coregister: {moving.name} → {fixed_path.name} …",
             file=sys.stderr,
             flush=True,
         )
@@ -472,7 +472,7 @@ def apply_transform(
         payload["invert_flags"] = invert_flags
 
     print(
-        f"[medmcp-neuro] apply_transform: {input_path.name} → {space} space …",
+        f"[medmcp-neuro-core] apply_transform: {input_path.name} → {space} space …",
         file=sys.stderr,
         flush=True,
     )

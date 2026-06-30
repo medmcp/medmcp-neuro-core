@@ -6,10 +6,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from medmcp_neuro.tools._neuro import Device
-from medmcp_neuro.tools.skull_strip import skull_strip
+from medmcp_neuro_core.tools._neuro import Device
+from medmcp_neuro_core.tools.skull_strip import skull_strip
 
-_SUBPROCESS_RUN = "medmcp_neuro.tools.skull_strip.subprocess.run"
+_SUBPROCESS_RUN = "medmcp_neuro_core.tools.skull_strip.subprocess.run"
 
 
 def _mock_subprocess_run(
@@ -99,7 +99,7 @@ def test_auto_resolves_to_accelerator_and_enables_tta(tmp_path: Path) -> None:
     inp = tmp_path / "sub-01_T1w.nii.gz"
     inp.touch()
     with (
-        patch("medmcp_neuro.tools.skull_strip.resolve_device", return_value="cuda"),
+        patch("medmcp_neuro_core.tools.skull_strip.resolve_device", return_value="cuda"),
         patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run,
     ):
         result = skull_strip(inp, device="auto")
@@ -112,7 +112,7 @@ def test_auto_resolving_to_cpu_disables_tta(tmp_path: Path) -> None:
     inp = tmp_path / "sub-01_T1w.nii.gz"
     inp.touch()
     with (
-        patch("medmcp_neuro.tools.skull_strip.resolve_device", return_value="cpu"),
+        patch("medmcp_neuro_core.tools.skull_strip.resolve_device", return_value="cpu"),
         patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run,
     ):
         result = skull_strip(inp, device="auto")

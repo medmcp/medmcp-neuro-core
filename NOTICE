@@ -1,0 +1,62 @@
+medmcp-neuro-core
+Copyright 2026 Julian McGinnis
+Copyright 2026 Paul Friedrich
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+------------------------------------------------------------------------------
+Bundled neuroimaging tools and model weights
+------------------------------------------------------------------------------
+
+medmcp-neuro-core wraps established third-party neuroimaging tools and
+redistributes some of their pretrained weights/checkpoints (baked into the
+published container image). Each remains under its own license and carries its
+own citation requirements; if you use the results in research, please cite the
+underlying methods (see the "Citation" section of README.md).
+
+  - HD-BET (skull_strip) — brain extraction.
+    Apache-2.0. https://github.com/MIC-DKFZ/HD-BET
+    Cite: Isensee et al., "Automated brain extraction of multi-sequence MRI
+    using artificial neural networks", Human Brain Mapping (2019).
+    doi:10.1002/hbm.24750
+
+  - ANTs / ANTsPy (register_to_template, coregister, apply_transform) —
+    image registration.
+    Apache-2.0. https://github.com/ANTsX/ANTsPy
+    Cite: Tustison et al., "The ANTsX ecosystem for quantitative biological and
+    medical imaging", Scientific Reports 11:9068 (2021).
+    doi:10.1038/s41598-021-87564-6
+
+  - FastSurfer (segment_brain) — deep-learning whole-brain segmentation
+    (FastSurferVINN, seg-only; no FreeSurfer license required).
+    Apache-2.0. https://github.com/Deep-MI/FastSurfer
+    Cite: Henschel et al., "FastSurfer - A fast and accurate deep learning based
+    neuroimaging pipeline", NeuroImage 219:117012 (2020).
+    doi:10.1016/j.neuroimage.2020.117012
+    Henschel et al., "FastSurferVINN: Building resolution-independence into deep
+    learning segmentation methods", NeuroImage 251:118933 (2022).
+    doi:10.1016/j.neuroimage.2022.118933
+
+------------------------------------------------------------------------------
+Standard-space templates
+------------------------------------------------------------------------------
+
+  - MNI152NLin2009cAsym (register_to_template default template), retrieved on
+    first use from TemplateFlow and baked into the published container image.
+    Distributed under the template's own license (see the LICENSE file in
+    https://github.com/templateflow/tpl-MNI152NLin2009cAsym).
+    Cite: Fonov et al., "Unbiased average age-appropriate atlases for pediatric
+    studies", NeuroImage 54(1):313-327 (2011).
+    doi:10.1016/j.neuroimage.2010.07.033
+    Retrieved via TemplateFlow: Ciric et al., "TemplateFlow: FAIR-sharing of
+    multi-scale, multi-species brain models", Nature Methods 19:1568-1571 (2022).
+    doi:10.1038/s41592-022-01681-2
+
+------------------------------------------------------------------------------
+Bundled libraries
+------------------------------------------------------------------------------
+
+The Python libraries redistributed inside the container image — including
+PyTorch, nnU-Net (the engine HD-BET builds on), nibabel, and their transitive
+dependency closure — each remain under their own license; the full license texts
+travel with each package's distribution.
