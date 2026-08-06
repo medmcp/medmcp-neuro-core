@@ -38,6 +38,14 @@ jobs:
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v6
+      # Record what this runner actually has. Two arm64 builds died with no failing
+      # step and no log whatsoever, so capture the resource picture up front — if it
+      # happens again, at least the RAM/core count is on record next to the failure.
+      - name: Runner resources
+        run: |
+          echo "arch: $(uname -m)  cores: $(nproc)"
+          free -h || true
+          df -h / | tail -1
       # The neuro image is large (one shared cu128 torch + CUDA stack for HD-BET,
       # antspyx, and FastSurfer seg-only, plus baked HD-BET/FastSurfer weights). The
       # export-for-push needs much free space, so reclaim aggressively — the default
@@ -62,11 +70,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
+        env:
+          # Stream progress: both previous arm64 failures produced no log at all,
+          # which made them undiagnosable. Plain progress leaves breadcrumbs.
+          BUILDKIT_PROGRESS: plain
         with:
           context: .
           push: ${{ github.event_name != 'pull_request' }}
           build-args: |
             BASE_IMAGE=ghcr.io/medmcp/base:main
+            CMAKE_BUILD_PARALLEL_LEVEL=${{ matrix.arch == 'arm64' && '2' || '' }}
           tags: |
             ghcr.io/medmcp/neuro-core:${{ github.sha }}-${{ matrix.arch }}
             ghcr.io/medmcp/neuro-core:main-${{ matrix.arch }}
