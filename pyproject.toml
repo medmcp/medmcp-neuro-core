@@ -78,6 +78,16 @@ dev = [
 [tool.uv]
 default-groups = ["dev"]
 
+# The cu128 torch wheels declare triton as `sys_platform == 'linux'` with no
+# architecture constraint (PyPI's torch correctly adds platform_machine ==
+# 'x86_64'). triton publishes x86_64 wheels only and has no sdist, so on
+# linux/aarch64 — e.g. a DGX Spark — resolution fails outright with
+# "Distribution `triton` ... doesn't have a source distribution or wheel for the
+# current platform". Restore the missing architecture marker so triton is
+# required on x86_64 only; torch itself has a manylinux_2_28_aarch64 cu128 wheel
+# and does not need triton there.
+override-dependencies = ["triton; sys_platform == 'linux' and platform_machine == 'x86_64'"]
+
 # Pin the PyTorch ecosystem to the CUDA 12.8 build so the GPU image runs on any
 # host driver >= R570 (covers Turing through Blackwell via CUDA backward-compat).
 # Newer-driver nodes run this image fine; nodes older than R570 are out of scope

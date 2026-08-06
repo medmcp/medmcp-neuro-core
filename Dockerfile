@@ -19,6 +19,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
+# antspyx publishes aarch64 wheels only for 0.4.2; every release from 0.5 on is
+# x86_64/macos only. We keep 0.6.3 on both architectures rather than pinning an
+# older ANTs on arm64 — differing ANTs versions per architecture would mean
+# registration output that depends on the machine it ran on. So on arm64 antspyx
+# is compiled from its sdist, which builds ITK+ANTs via CMake and needs a full
+# C++ toolchain (without it: "CMAKE_CXX_COMPILER not set, after EnableLanguage").
+# This makes arm64 builds substantially slower; amd64 still installs the wheel and
+# is unaffected.
+RUN if [ "$(dpkg --print-architecture)" = "arm64" ]; then \
+        apt-get update && \
+        apt-get install -y --no-install-recommends \
+            build-essential cmake git python3-dev \
+            zlib1g-dev libpng-dev libjpeg-dev libtiff-dev && \
+        rm -rf /var/lib/apt/lists/*; \
+    fi
+
 # Trust extra CA certs at build time behind a TLS-intercepting (MITM) proxy so
 # uv/pip/git fetch through it. Drop the proxy root CA as a *.crt into ./certs/
 # (gitignored; empty = no-op — CI / non-proxied builds add nothing). UV_NATIVE_TLS
