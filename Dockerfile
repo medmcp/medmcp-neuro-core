@@ -45,10 +45,21 @@ ENV UV_NATIVE_TLS=1
 
 WORKDIR /app
 
+# On arm64 this compiles antspyx (ITK+ANTs) from source, which by default runs one
+# compile job per core. ITK's template-heavy translation units are memory-hungry, so
+# on a small runner the peak exceeds RAM and the job is killed with no diagnostic at
+# all — no failing step, no log. Leave it unset for local builds on a large machine
+# (full parallelism); CI passes a cap on the arm64 leg only.
+ARG CMAKE_BUILD_PARALLEL_LEVEL=""
+
 # Frozen install from the committed lock (build-time network; runtime offline).
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ -n "${CMAKE_BUILD_PARALLEL_LEVEL}" ]; then \
+        export CMAKE_BUILD_PARALLEL_LEVEL MAKEFLAGS="-j${CMAKE_BUILD_PARALLEL_LEVEL}"; \
+        echo "capping build parallelism at ${CMAKE_BUILD_PARALLEL_LEVEL}"; \
+    fi; \
     uv sync --frozen --no-dev \
  && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
  && find /app/.venv -name '*.a' -delete
@@ -61,8 +72,23 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
+# Model weights come from third-party hosts (Zenodo for HD-BET, Deep-MI for
+# FastSurfer) that intermittently answer 5xx. Unretried, a single bad response kills
+# the entire image build — a Zenodo 504 on the HD-BET weights failed CI while the same
+# URL served fine seconds later, and the sibling neuro-cancer stack hit the equivalent
+# NVIDIA 504 three builds running. Retry with linear backoff.
+RUN printf '%s\n' '#!/bin/sh' \
+      'n=0' \
+      'until "$@"; do' \
+      '  n=$((n+1))' \
+      '  [ "$n" -ge 5 ] && { echo "retry: failed after $n attempts: $*" >&2; exit 1; }' \
+      '  echo "retry: attempt $n failed; sleeping $((n*15))s" >&2' \
+      '  sleep $((n*15))' \
+      'done' \
+    > /usr/local/bin/retry && chmod +x /usr/local/bin/retry
+
 # Bake HD-BET weights so skull_strip runs with --network none (no runtime download).
-RUN /app/.venv/bin/python -c "from HD_BET.checkpoint_download import maybe_download_parameters; maybe_download_parameters()"
+RUN retry /app/.venv/bin/python -c "from HD_BET.checkpoint_download import maybe_download_parameters; maybe_download_parameters()"
 
 # ── FastSurfer (segment_brain) ────────────────────────────────────────────────
 # Whole-brain segmentation via FastSurferVINN, seg-only (no FreeSurfer license).
@@ -84,7 +110,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
  && uv pip install --python /app/.venv/bin/python \
         --extra-index-url https://download.pytorch.org/whl/cu128 \
         --index-strategy unsafe-best-match -r /tmp/fs-seg-req.txt \
- && PYTHONPATH=/opt/FastSurfer /app/.venv/bin/python \
+ && retry env PYTHONPATH=/opt/FastSurfer /app/.venv/bin/python \
         /opt/FastSurfer/FastSurferCNN/download_checkpoints.py --vinn \
  && rm -rf /opt/FastSurfer/.git \
  && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
