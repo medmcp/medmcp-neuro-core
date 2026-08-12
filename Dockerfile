@@ -90,6 +90,14 @@ RUN printf '%s\n' '#!/bin/sh' \
 # Bake HD-BET weights so skull_strip runs with --network none (no runtime download).
 RUN retry /app/.venv/bin/python -c "from HD_BET.checkpoint_download import maybe_download_parameters; maybe_download_parameters()"
 
+# Bake the MNI152 template so register_to_template runs with --network none. Both
+# variants: the skull-stripped (desc-brain) one is what the registration skill uses
+# after skull_strip, so omitting it would leave that path broken offline. Populated
+# through the tool's own resolver, so the cache location and filenames cannot drift
+# from the code that reads them.
+RUN retry /app/.venv/bin/python -c \
+    "from medmcp_neuro_core.tools._template import get_mni152_1mm; get_mni152_1mm(skull_stripped=False); get_mni152_1mm(skull_stripped=True)"
+
 # ── FastSurfer (segment_brain) ────────────────────────────────────────────────
 # Whole-brain segmentation via FastSurferVINN, seg-only (no FreeSurfer license).
 # FastSurfer pins torch==2.7.1 — the SAME version /app/.venv uses (pinned in
