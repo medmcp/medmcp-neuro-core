@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `register_to_template` now works in the container. The MNI152 template was the one asset still fetched at runtime rather than baked into the image, so once stack containers began running with networking denied, every template registration failed at the download with a name-resolution error. Both template variants (whole-head and skull-stripped) are now baked at build time, like the HD-BET and FastSurfer weights already were.
+
 ### Added
 
 - `skull_strip` persistent HD-BET worker: loads torch + CUDA + the model once and reuses it across calls (opt-in via `MEDMCP_HDBET_PERSIST`, or once pre-loaded by the new `warmup` tool), reclaiming the per-call model-load cost on warm calls. Falls back to the per-call subprocess if the worker is unavailable, so behaviour is unchanged by default.
