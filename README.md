@@ -115,6 +115,13 @@ tools, and `segment_brain` — work in-container; `segment_brain` is backed by
 single application venv (torch is pinned to FastSurfer's `2.7.1`, so HD-BET, antspyx,
 and FastSurfer all use one CUDA stack), with the FastSurferVINN checkpoint baked at build.
 
+### Staying in sync with the template
+
+Files shared with [medmcp-template](https://github.com/medmcp/medmcp-template) are
+listed in `scripts/shared-files.txt`. The **Template drift** workflow reports when
+one of them diverges; `./scripts/sync-from-template.sh` pulls them back. A change
+that belongs in every stack goes in the template, not here.
+
 ---
 
 ## Contributing
