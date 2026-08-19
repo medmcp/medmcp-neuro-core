@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/shared-files.txt` lists them, `scripts/sync-from-template.sh` pulls them
   in, and a **Template drift** workflow reports when one diverges. This first sync
   picked up a CI action bump that had already landed in the template.
+- Dependabot ignores `torch`/`torchvision`. Both are pinned exactly to the cu128
+  build so the GPU image runs on any driver >= R570; bumping them moves the CUDA
+  build and with it the minimum driver, which is a decision about the fleet rather
+  than routine maintenance. The two open bump PRs could not resolve anyway and are
+  closed.
 - `CODEOWNERS` removed. It was entirely commented out behind a "replace before the
   repo goes public" note, so it assigned no ownership and requested no reviews.
 - References to the core repo use its current name, `medmcp`, not the pre-rename

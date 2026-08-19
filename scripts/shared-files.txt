@@ -20,6 +20,10 @@
 #       — template-derived, but carry the stack's name and its build deps.
 #   .github/ISSUE_TEMPLATE/config.yml
 #       — points at the repo's own Discussions.
+#   .github/dependabot.yml
+#       — dependency policy is per-repo: this stack ignores torch/torchvision
+#         because their version is a fleet driver-floor decision, which means
+#         nothing in a repo that has no torch.
 .dockerignore
 .editorconfig
 .pre-commit-config.yaml
@@ -27,7 +31,6 @@
 CODE_OF_CONDUCT.md
 LICENSE
 SECURITY.md
-.github/dependabot.yml
 .github/ISSUE_TEMPLATE/bug_report.yml
 .github/ISSUE_TEMPLATE/feature_request.yml
 .github/PULL_REQUEST_TEMPLATE.md
