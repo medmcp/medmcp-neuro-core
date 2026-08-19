@@ -142,10 +142,11 @@ def register_to_template(
 
     Normalizes a 3-D structural volume to a standard-space template using ANTsPy
     (the Python interface to ANTs — installed automatically as a package dependency,
-    no separate binary install required). On first use the MNI152NLin2009cAsym 1 mm
-    template is downloaded from the templateflow S3 bucket and cached in
-    ``~/.medmcp_neuro_core/templates/``; subsequent calls use the cached copy. A custom
-    template can be supplied via ``template_path``.
+    no separate binary install required). The MNI152NLin2009cAsym 1 mm template is
+    read from ``~/.medmcp_neuro_core/templates/``, which the container image populates
+    at build time; running from source it is downloaded from the templateflow S3
+    bucket on first use and cached there. A custom template can be supplied via
+    ``template_path``.
 
     Timing varies with image size and hardware; ``syn`` is significantly slower than the others.
 
