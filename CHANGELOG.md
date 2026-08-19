@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `register_to_template` now works in the container. The MNI152 template was the one asset still fetched at runtime rather than baked into the image, so once stack containers began running with networking denied, every template registration failed at the download with a name-resolution error. Both template variants (whole-head and skull-stripped) are now baked at build time, like the HD-BET and FastSurfer weights already were.
 
+### Changed
+
+- Image builds reuse the previous build's layers, and install dependencies before copying the source. The arm64 leg compiles antspyx from its sdist (no aarch64 wheel is published past 0.4.2), which measured 2158s of a 2376s build — and that layer sat behind the source copy, so editing a single line of Python recompiled ITK and ANTs from scratch. A change that leaves `uv.lock` alone now pulls the layer instead of rebuilding it: roughly 40 minutes down to roughly 4. A dependency change still pays the full compile. The image contents are unchanged.
+- Only one image build runs per branch at a time. A superseded push is cancelled instead of spending most of an hour producing an image nobody will pull; pushes to `main` still always finish, since both architectures have to complete for the multi-arch manifest to be assembled.
+
 ### Added
 
 - `skull_strip` persistent HD-BET worker: loads torch + CUDA + the model once and reuses it across calls (opt-in via `MEDMCP_HDBET_PERSIST`, or once pre-loaded by the new `warmup` tool), reclaiming the per-call model-load cost on warm calls. Falls back to the per-call subprocess if the worker is unavailable, so behaviour is unchanged by default.
