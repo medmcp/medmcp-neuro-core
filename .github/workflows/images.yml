@@ -4,7 +4,7 @@ name: Image
 # On pull_request: build only (validates the Dockerfile) — no push.
 # FROM ghcr.io/medmcp/base — the base package must grant this repo read access
 # (Package settings -> Manage Actions access), and base:main must already be
-# published (run medmcp-dev's Images workflow first). Single shared cu128 torch venv
+# published (run the core repo's Images workflow first). Single shared cu128 torch venv
 # for HD-BET + antspyx + FastSurfer seg-only, plus baked HD-BET/FastSurfer weights;
 # large image, so no layer caching — see the build step.
 #
@@ -109,7 +109,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

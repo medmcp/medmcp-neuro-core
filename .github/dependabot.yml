@@ -14,3 +14,13 @@ updates:
     groups:
       dev-deps:
         dependency-type: "development"
+    ignore:
+      # torch/torchvision are pinned exactly, to the cu128 build, so the GPU image
+      # runs on any host driver >= R570 — the fleet floor. Bumping them moves the
+      # CUDA build and therefore the minimum driver, which is a fleet capacity
+      # decision, not routine maintenance. Left un-ignored, dependabot reopens
+      # these indefinitely and they cannot even resolve (no torch 2.13 for every
+      # python/platform this project declares). Raise the pin deliberately, here,
+      # when the floor moves.
+      - dependency-name: "torch"
+      - dependency-name: "torchvision"

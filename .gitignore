@@ -210,3 +210,7 @@ __marimo__/
 # Drop the proxy's root CA *.crt here; never commit the CA itself.
 certs/*
 !certs/.gitkeep
+
+# Local-only AI-assistant instructions; not part of the published surface.
+CLAUDE.md
+.claude/
