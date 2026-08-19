@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0]
+
+First public release. `medmcp-neuro-core` is the neuroimaging tool stack for
+MedMCP — an MCP server exposing brain extraction, registration, and whole-brain
+segmentation as tools an agent calls by name. Model weights and the template are
+baked into the container image, so every tool runs with networking denied.
+
+**Not licensed for clinical use.**
 
 ### Changed
 
