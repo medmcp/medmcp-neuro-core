@@ -23,6 +23,15 @@ permissions:
   contents: read
   packages: write
 
+# One build per ref. These are long (the arm64 leg compiles antspyx from source),
+# so without this a superseded push keeps a runner busy for the better part of an
+# hour producing an image nobody will pull. Pull requests cancel; a push to main
+# does not, because both arch legs have to finish for the merge job to assemble
+# the manifest list.
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   image:
     runs-on: ${{ matrix.runner }}
@@ -83,10 +92,22 @@ jobs:
           tags: |
             ghcr.io/medmcp/neuro-core:${{ github.sha }}-${{ matrix.arch }}
             ghcr.io/medmcp/neuro-core:main-${{ matrix.arch }}
-          # No GHA cache: this image is far over the ~10 GB Actions-cache cap, and
-          # `cache-to: mode=max` exporting a second copy of every layer fills the
-          # runner disk ("no space left on device"). The build itself fits on the
-          # hosted runner (after the Free-disk step), so we just skip caching.
+          # Layer cache. The dependency layer is essentially the whole arm64
+          # build — 2158s of 2376s, because antspyx has no aarch64 wheel past
+          # 0.4.2 and compiles from its sdist — so reusing it turns any change
+          # that leaves uv.lock alone into a ~3 GB pull instead of a recompile.
+          #
+          # A dedicated registry ref with mode=min, not the two things that were
+          # ruled out before: the GHA cache is capped around 10 GB and this image
+          # is 5.8 GB compressed per arch, and mode=max exported a second copy of
+          # every layer onto the runner disk ("no space left on device"). mode=min
+          # stores only the final image's layers, and storing them beside the image
+          # in the same GHCR repository means the blobs are shared rather than
+          # duplicated. A missing ref is a warning, not a failure, so the first
+          # build after this lands simply populates it.
+          cache-from: type=registry,ref=ghcr.io/medmcp/neuro-core:buildcache-${{ matrix.arch }}
+          # Only a push can write the cache; a PR build has nothing to export.
+          cache-to: ${{ github.event_name != 'pull_request' && format('type=registry,ref=ghcr.io/medmcp/neuro-core:buildcache-{0},mode=min', matrix.arch) || '' }}
 
       # Verify the built image really is the architecture we think it is — the core
       # refuses to install a foreign-arch stack image (medmcp#97), so a mislabelled

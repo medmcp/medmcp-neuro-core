@@ -53,14 +53,17 @@ WORKDIR /app
 ARG CMAKE_BUILD_PARALLEL_LEVEL=""
 
 # Frozen install from the committed lock (build-time network; runtime offline).
+# Dependencies only, and before the source is copied. On arm64 this single layer
+# is ~36 minutes of a ~40 minute build (antspyx compiles from its sdist), so its
+# cache key has to be pyproject.toml + uv.lock and nothing else. With `COPY src`
+# above it, editing one line of Python recompiled ITK and ANTs from scratch.
 COPY pyproject.toml uv.lock README.md LICENSE ./
-COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     if [ -n "${CMAKE_BUILD_PARALLEL_LEVEL}" ]; then \
         export CMAKE_BUILD_PARALLEL_LEVEL MAKEFLAGS="-j${CMAKE_BUILD_PARALLEL_LEVEL}"; \
         echo "capping build parallelism at ${CMAKE_BUILD_PARALLEL_LEVEL}"; \
     fi; \
-    uv sync --frozen --no-dev \
+    uv sync --frozen --no-dev --no-install-project \
  && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
  && find /app/.venv -name '*.a' -delete
 
@@ -90,14 +93,6 @@ RUN printf '%s\n' '#!/bin/sh' \
 # Bake HD-BET weights so skull_strip runs with --network none (no runtime download).
 RUN retry /app/.venv/bin/python -c "from HD_BET.checkpoint_download import maybe_download_parameters; maybe_download_parameters()"
 
-# Bake the MNI152 template so register_to_template runs with --network none. Both
-# variants: the skull-stripped (desc-brain) one is what the registration skill uses
-# after skull_strip, so omitting it would leave that path broken offline. Populated
-# through the tool's own resolver, so the cache location and filenames cannot drift
-# from the code that reads them.
-RUN retry /app/.venv/bin/python -c \
-    "from medmcp_neuro_core.tools._template import get_mni152_1mm; get_mni152_1mm(skull_stripped=False); get_mni152_1mm(skull_stripped=True)"
-
 # ── FastSurfer (segment_brain) ────────────────────────────────────────────────
 # Whole-brain segmentation via FastSurferVINN, seg-only (no FreeSurfer license).
 # FastSurfer pins torch==2.7.1 — the SAME version /app/.venv uses (pinned in
@@ -123,6 +118,22 @@ RUN --mount=type=cache,target=/root/.cache/uv \
  && rm -rf /opt/FastSurfer/.git \
  && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
  && find /app/.venv -name '*.a' -delete
+
+# The source, and the project itself, last: everything above depends only on the
+# lock, so a code change now rebuilds seconds of work instead of the whole image.
+# --inexact because FastSurfer's requirements were pip-installed into this venv
+# and are deliberately absent from uv.lock; a plain sync would prune them.
+COPY src ./src
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --inexact
+
+# Bake the MNI152 template so register_to_template runs with --network none. Both
+# variants: the skull-stripped (desc-brain) one is what the registration skill uses
+# after skull_strip, so omitting it would leave that path broken offline. Populated
+# through the tool's own resolver, so the cache location and filenames cannot drift
+# from the code that reads them.
+RUN retry /app/.venv/bin/python -c \
+    "from medmcp_neuro_core.tools._template import get_mni152_1mm; get_mni152_1mm(skull_stripped=False); get_mni152_1mm(skull_stripped=True)"
 
 ENV PATH=/opt/FastSurfer:/app/.venv/bin:$PATH \
     FASTSURFER_HOME=/opt/FastSurfer \
