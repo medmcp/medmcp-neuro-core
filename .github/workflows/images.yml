@@ -37,7 +37,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       # Record what this runner actually has. Two arm64 builds died with no failing
       # step and no log whatsoever, so capture the resource picture up front — if it
       # happens again, at least the RAM/core count is on record next to the failure.
