@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Tracks the files shared with [medmcp-template](https://github.com/medmcp/medmcp-template):
+  `scripts/shared-files.txt` lists them, `scripts/sync-from-template.sh` pulls them
+  in, and a **Template drift** workflow reports when one diverges. This first sync
+  picked up a CI action bump that had already landed in the template.
+- `CODEOWNERS` removed. It was entirely commented out behind a "replace before the
+  repo goes public" note, so it assigned no ownership and requested no reviews.
+- References to the core repo use its current name, `medmcp`, not the pre-rename
+  `medmcp-dev` — including one in `pyproject.toml` that pointed at a design
+  document which exists only on a maintainer's machine.
+
 ### Fixed
 
 - `register_to_template` now works in the container. The MNI152 template was the one asset still fetched at runtime rather than baked into the image, so once stack containers began running with networking denied, every template registration failed at the download with a name-resolution error. Both template variants (whole-head and skull-stripped) are now baked at build time, like the HD-BET and FastSurfer weights already were.

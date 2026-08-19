@@ -72,7 +72,7 @@ Full third-party attribution is in [`NOTICE`](NOTICE).
 This repo ships a dev container (`.devcontainer/`) with the full toolchain
 (Python 3.12 + uv, `just`, git, Docker CLI). It derives from the shared
 `medmcp-base` image, so build that once from the core repo first (`just docker-base`
-in `medmcp-dev`). Then open the repo with the **Dev Container** action in PyCharm
+in a `medmcp` checkout). Then open the repo with the **Dev Container** action in PyCharm
 (2024.2+) or **Reopen in Container** in VS Code — `uv sync` runs on first start.
 The dev container requests no GPU by default (so it starts anywhere); to run GPU
 code from inside add `--device nvidia.com/gpu=all`, or build and run the image. See

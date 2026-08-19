@@ -29,7 +29,7 @@ The recommended way to work on this package is **inside the dev container**
 (`.devcontainer/`) — it gives everyone the same toolchain (Python 3.12 + uv,
 `just`, git, Docker CLI) and matches the deployment image. It derives from the
 shared `medmcp-base` image, so build that once from the core repo first
-(`just docker-base` in `medmcp-dev`). Then:
+(`just docker-base` in a `medmcp` checkout). Then:
 
 - **PyCharm** (unified PyCharm, 2024.2+; Docker integration is a Professional
   feature): open this project, open `.devcontainer/devcontainer.json`, and use the

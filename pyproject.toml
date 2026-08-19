@@ -91,7 +91,7 @@ override-dependencies = ["triton; sys_platform == 'linux' and platform_machine =
 # Pin the PyTorch ecosystem to the CUDA 12.8 build so the GPU image runs on any
 # host driver >= R570 (covers Turing through Blackwell via CUDA backward-compat).
 # Newer-driver nodes run this image fine; nodes older than R570 are out of scope
-# (see medmcp-dev/docs/containerization-plan.md).
+# (R570 is the fleet floor; see the core repo's CLAUDE/CONTRIBUTING notes).
 [[tool.uv.index]]
 name = "pytorch-cu128"
 url = "https://download.pytorch.org/whl/cu128"
