@@ -69,7 +69,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         env:
           # Stream progress: both previous arm64 failures produced no log at all,
           # which made them undiagnosable. Plain progress leaves breadcrumbs.
