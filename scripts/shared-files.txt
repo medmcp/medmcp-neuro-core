@@ -21,9 +21,9 @@
 #   .github/ISSUE_TEMPLATE/config.yml
 #       — points at the repo's own Discussions.
 #   .github/dependabot.yml
-#       — dependency policy is per-repo: this stack ignores torch/torchvision
-#         because their version is a fleet driver-floor decision, which means
-#         nothing in a repo that has no torch.
+#       — dependency policy is per-repo. medmcp-neuro-core ignores torch and
+#         torchvision because their version sets the fleet's minimum GPU driver;
+#         that rule is meaningless in a repo with no torch.
 .dockerignore
 .editorconfig
 .pre-commit-config.yaml
