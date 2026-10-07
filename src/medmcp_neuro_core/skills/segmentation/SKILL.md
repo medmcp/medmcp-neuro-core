@@ -57,8 +57,9 @@ lowercased/spaced guess like `left thalamus` will not be found. Call
   volume, **not** eTIV/ICV — true eTIV needs a Talairach registration that requires a
   FreeSurfer license, which this license-free seg-only pipeline deliberately avoids;
   `BrainSegVol` is the license-free equivalent for head-size normalisation.
-- **Output is a FreeSurfer `.mgz` label map** (`*_dseg.mgz`) — the workspace viewer
-  renders MGZ natively, and you can overlay it on the input by dragging it onto the
+- **Output is a FreeSurfer `.mgz` label map** (`*_dseg.mgz`) with `*_labels.csv`
+  beside it (`label,structure`) — the workspace viewer renders MGZ natively, names the
+  legend from that CSV, and you can overlay it on the input by dragging it onto the
   image. To warp it into template space, use `apply_transform` with
   `interpolation="NearestNeighbor"` (it's an integer label map).
 - **Runtime** — segmentation is substantially faster on GPU than on CPU. The

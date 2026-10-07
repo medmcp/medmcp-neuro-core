@@ -135,6 +135,7 @@ class SegmentResult(TypedDict):
     """Brain segmentation result."""
 
     seg_path: str
+    labels_path: str
     volumes_path: str
     input_path: str
     device: str
@@ -226,6 +227,45 @@ def _parse_aseg_stats(stats_path: Path) -> list[tuple[str, float]]:
                 continue
             rows.append((cols[4], volume))
     return rows
+
+
+def _parse_aseg_labels(stats_path: Path) -> list[tuple[int, str]]:
+    """Parse a FastSurfer .stats file into (label id, structure name) rows.
+
+    Same data lines as ``_parse_aseg_stats`` (``SegId`` and ``StructName`` columns),
+    same corpus-callosum skip, so the label table and the volume CSV name the same
+    structures.
+    """
+    rows: list[tuple[int, str]] = []
+    with open(stats_path) as fh:
+        for line in fh:
+            if line.startswith("#") or not line.strip():
+                continue
+            cols = line.split()
+            if len(cols) < 5:
+                continue
+            try:
+                seg_id = int(cols[1])
+            except ValueError:
+                continue
+            if seg_id in _CC_SEGIDS:
+                continue
+            rows.append((seg_id, cols[4]))
+    return rows
+
+
+def _write_labels_csv(stats_path: Path, destination: Path) -> Path:
+    """Write the label-id -> structure-name table for the segmentation.
+
+    ``label,structure`` is the convention every MedMCP stack follows beside a
+    ``_dseg`` volume; the workspace viewer reads it to name the labels in its legend
+    and carries no colour table of its own.
+    """
+    with open(destination, "w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["label", "structure"])
+        writer.writerows(_parse_aseg_labels(stats_path))
+    return destination
 
 
 def _parse_measure(stats_path: Path, short_name: str) -> float | None:
@@ -410,6 +450,7 @@ def segment_brain(
     out_dir.mkdir(parents=True, exist_ok=True)
     stem = nii_stem(input_path)
     seg_path = out_dir / f"{stem}_dseg.mgz"
+    labels_path = out_dir / f"{stem}_labels.csv"
     volumes_path = out_dir / f"{stem}_volumes.csv"
 
     # FastSurfer writes into <sd>/<sid>/; use a scratch SUBJECTS_DIR and point the
@@ -480,9 +521,11 @@ def segment_brain(
             writer.writerows(structure_rows)
             if brain_seg_vol is not None:
                 writer.writerow(["BrainSegVol", brain_seg_vol])
+        _write_labels_csv(stats_path, labels_path)
 
     result: SegmentResult = {
         "seg_path": str(seg_path),
+        "labels_path": str(labels_path),
         "volumes_path": str(volumes_path),
         "input_path": str(input_path),
         "device": resolved_device,
@@ -494,6 +537,7 @@ def segment_brain(
             "Report the segmentation result as a compact key-value list:\n"
             "  Input:      <input_path>\n"
             "  Seg labels: <seg_path>\n"
+            "  Label names: <labels_path>\n"
             "  Device:     <device>\n"
             "  Volumes:    <volumes_path>\n"
             "Substitute values from the result dict. Omit internal keys.\n"
