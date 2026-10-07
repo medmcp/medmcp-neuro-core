@@ -217,6 +217,12 @@ def test_labels_csv_names_the_label_ids(tmp_path: Path) -> None:
     assert "10,Left-Thalamus" in lines
     assert "49,Right-Thalamus" in lines
     assert not any(line.startswith("251,") for line in lines)
+    # Same structures, same order, as the volumes CSV (minus its BrainSegVol row).
+    volume_rows = Path(str(result["volumes_path"])).read_text().splitlines()[1:]
+    volume_structures = [
+        row.split(",")[0] for row in volume_rows if not row.startswith("BrainSegVol")
+    ]
+    assert [line.split(",")[1] for line in lines[1:]] == volume_structures
 
 
 def test_render_contains_next_action(tmp_path: Path) -> None:

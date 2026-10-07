@@ -201,21 +201,21 @@ def _fastsurfer_python() -> str | None:
 _CC_SEGIDS: frozenset[int] = frozenset({251, 252, 253, 254, 255})
 
 
-def _parse_aseg_stats(stats_path: Path) -> list[tuple[str, float]]:
-    """Parse a FreeSurfer/FastSurfer .stats file into (structure, volume_mm3) rows.
+def _parse_aseg_rows(stats_path: Path) -> list[tuple[int, str, float]]:
+    """Parse a FreeSurfer/FastSurfer .stats file into (SegId, StructName, Volume_mm3).
 
     Stats data lines are whitespace-separated with the columns described in the
-    ``# ColHeaders`` line (Index SegId NVoxels Volume_mm3 StructName ...); volume is
-    ``Volume_mm3`` and the name is ``StructName``. Comment lines start with '#'. The
-    always-empty corpus-callosum rows (see ``_CC_SEGIDS``) are skipped.
+    ``# ColHeaders`` line (Index SegId NVoxels Volume_mm3 StructName ...). Comment
+    lines start with '#'. The always-empty corpus-callosum rows (see ``_CC_SEGIDS``)
+    are skipped. The volumes CSV and the labels CSV are both cut from these rows, so
+    they always name the same structures.
     """
-    rows: list[tuple[str, float]] = []
+    rows: list[tuple[int, str, float]] = []
     with open(stats_path) as fh:
         for line in fh:
             if line.startswith("#") or not line.strip():
                 continue
             cols = line.split()
-            # ColHeaders: Index SegId NVoxels Volume_mm3 StructName ...
             if len(cols) < 5:
                 continue
             try:
@@ -225,41 +225,26 @@ def _parse_aseg_stats(stats_path: Path) -> list[tuple[str, float]]:
                 continue
             if seg_id in _CC_SEGIDS:  # always 0 in seg-only mode
                 continue
-            rows.append((cols[4], volume))
+            rows.append((seg_id, cols[4], volume))
     return rows
+
+
+def _parse_aseg_stats(stats_path: Path) -> list[tuple[str, float]]:
+    """(structure, volume_mm3) rows of a .stats file — the volumes CSV."""
+    return [(name, volume) for _, name, volume in _parse_aseg_rows(stats_path)]
 
 
 def _parse_aseg_labels(stats_path: Path) -> list[tuple[int, str]]:
-    """Parse a FastSurfer .stats file into (label id, structure name) rows.
-
-    Same data lines as ``_parse_aseg_stats`` (``SegId`` and ``StructName`` columns),
-    same corpus-callosum skip, so the label table and the volume CSV name the same
-    structures.
-    """
-    rows: list[tuple[int, str]] = []
-    with open(stats_path) as fh:
-        for line in fh:
-            if line.startswith("#") or not line.strip():
-                continue
-            cols = line.split()
-            if len(cols) < 5:
-                continue
-            try:
-                seg_id = int(cols[1])
-            except ValueError:
-                continue
-            if seg_id in _CC_SEGIDS:
-                continue
-            rows.append((seg_id, cols[4]))
-    return rows
+    """(label id, structure) rows of a .stats file — the labels CSV."""
+    return [(seg_id, name) for seg_id, name, _ in _parse_aseg_rows(stats_path)]
 
 
 def _write_labels_csv(stats_path: Path, destination: Path) -> Path:
     """Write the label-id -> structure-name table for the segmentation.
 
-    ``label,structure`` is the convention every MedMCP stack follows beside a
-    ``_dseg`` volume; the workspace viewer reads it to name the labels in its legend
-    and carries no colour table of its own.
+    ``label,structure`` is the TotalSegmentator stack's convention beside a ``_dseg``
+    volume; the workspace viewer reads it to name the labels in its legend and has
+    no label-name table of its own.
     """
     with open(destination, "w", newline="") as fh:
         writer = csv.writer(fh)
@@ -537,7 +522,7 @@ def segment_brain(
             "Report the segmentation result as a compact key-value list:\n"
             "  Input:      <input_path>\n"
             "  Seg labels: <seg_path>\n"
-            "  Label names: <labels_path>\n"
+            "  Labels:     <labels_path>\n"
             "  Device:     <device>\n"
             "  Volumes:    <volumes_path>\n"
             "Substitute values from the result dict. Omit internal keys.\n"
