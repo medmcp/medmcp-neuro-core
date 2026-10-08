@@ -187,6 +187,7 @@ def test_return_keys(tmp_path: Path) -> None:
     """Return dict contains all required keys."""
     result, _ = _run_with_mock(tmp_path)
     assert result["seg_path"]
+    assert result["labels_path"]
     assert result["volumes_path"]
     assert result["input_path"]
     assert result["device"] == "cpu"
@@ -203,6 +204,25 @@ def test_volumes_path_naming(tmp_path: Path) -> None:
     """volumes_path uses the _volumes.csv suffix."""
     result, _ = _run_with_mock(tmp_path, filename="sub-01_T1w.nii.gz")
     assert str(result["volumes_path"]).endswith("sub-01_T1w_volumes.csv")
+
+
+def test_labels_csv_names_the_label_ids(tmp_path: Path) -> None:
+    """<stem>_labels.csv maps each SegId to its StructName (label,structure), CC rows excluded."""
+    result, _ = _run_with_mock(tmp_path, filename="sub-01_T1w.nii.gz")
+    labels_path = Path(str(result["labels_path"]))
+    assert labels_path.name == "sub-01_T1w_labels.csv"
+    assert labels_path.parent == Path(str(result["seg_path"])).parent
+    lines = labels_path.read_text().splitlines()
+    assert lines[0] == "label,structure"
+    assert "10,Left-Thalamus" in lines
+    assert "49,Right-Thalamus" in lines
+    assert not any(line.startswith("251,") for line in lines)
+    # Same structures, same order, as the volumes CSV (minus its BrainSegVol row).
+    volume_rows = Path(str(result["volumes_path"])).read_text().splitlines()[1:]
+    volume_structures = [
+        row.split(",")[0] for row in volume_rows if not row.startswith("BrainSegVol")
+    ]
+    assert [line.split(",")[1] for line in lines[1:]] == volume_structures
 
 
 def test_render_contains_next_action(tmp_path: Path) -> None:
