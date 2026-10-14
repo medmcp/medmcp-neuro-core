@@ -3,8 +3,8 @@
 Both methods are *self-supervised*: there are no pretrained weights. Each call trains
 a fresh network on the input volume itself — learning from its high-resolution
 in-plane data what a high-resolution through-plane would look like — and then applies
-it. That makes them slow (minutes to an hour per image on a GPU) but contrast- and
-scanner-agnostic. They target 2D-acquired scans whose slices are much thicker than
+it. That makes them slow (~30 min ECLARE / ~1.5 h SMORE per image on a GPU) but
+contrast- and scanner-agnostic. They target 2D-acquired scans whose slices are much thicker than
 the in-plane resolution (e.g. 0.9 x 0.9 x 5 mm); the output is resampled to the
 in-plane resolution in all three axes.
 
@@ -201,8 +201,10 @@ def _run_cli(cmd: list[str], log_path: Path, cwd: Path, timeout: float, label: s
     """Run one upstream CLI step, logging stdout+stderr to ``log_path``.
 
     The log goes to a file rather than a pipe: training emits a long tqdm stream, and
-    a file needs no draining. ``TQDM_MININTERVAL`` thins the progress bars to one
-    update every 30 s. On failure the tail of the log is raised.
+    a file needs no draining (under 1 MB for a default ECLARE run). ``TQDM_MININTERVAL``
+    thins the plain progress bars to one update every 30 s. The training bars call
+    ``set_postfix``, which forces a refresh every batch, so they are not thinned. On
+    failure the tail of the log is raised.
 
     Raises:
         RuntimeError: On a non-zero exit or timeout.
@@ -346,10 +348,10 @@ def super_resolve(
 
     Self-supervised — no pretrained weights and no training data: a network is
     trained on the input image itself (from its high-resolution in-plane slices) and
-    then applied to the through-plane axis, so every call takes minutes to about an
-    hour on a GPU. The through-plane axis (the coarsest voxel spacing) is resampled to
-    the finest in-plane spacing; in-plane is unchanged. Inputs that are already
-    (near-)isotropic are skipped with a warning instead of run.
+    then applied to the through-plane axis, so a call at default settings takes about
+    30 min (ECLARE) or 1.5 h (SMORE) on a GPU. The through-plane axis (the coarsest
+    voxel spacing) is resampled to the finest in-plane spacing; in-plane is unchanged.
+    Inputs that are already (near-)isotropic are skipped with a warning instead of run.
 
     Output is written to ``output_dir`` (defaults to the input's directory) as
     ``{stem}_eclare.nii.gz`` or ``{stem}_smore.nii.gz`` (``.nii`` for ``.nii`` input),
