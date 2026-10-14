@@ -37,6 +37,33 @@ underlying methods (see the "Citation" section of README.md).
     learning segmentation methods", NeuroImage 251:118933 (2022).
     doi:10.1016/j.neuroimage.2022.118933
 
+  - ECLARE (super_resolve, method="eclare") — self-supervised through-plane
+    super-resolution of anisotropic MRI. No weights (trained per image).
+    GPL-3.0. https://github.com/sremedios/ECLARE (PyPI: eclare 1.0.1)
+    Shipped unmodified in the container image as a separate program: the
+    super_resolve tool runs its `run-eclare` command in a subprocess and does
+    not import it. Corresponding source: the PyPI sdist and the GitHub
+    repository above; the installed pure-Python source is also in the image.
+    Cite: Remedios et al., "ECLARE: efficient cross-planar learning for
+    anisotropic resolution enhancement", Journal of Medical Imaging 13(2):024001
+    (2026). doi:10.1117/1.JMI.13.2.024001
+
+  - SMORE v4 (super_resolve, method="smore") — self-supervised anti-aliasing and
+    super-resolution of anisotropic MRI. No weights (trained per image).
+    Apache-2.0, as declared in the package metadata (setup.py) of
+    https://gitlab.com/iacl/smore tag v4.0.5; the repository ships no LICENSE
+    file. Its helper packages resize (v0.3.0, https://gitlab.com/iacl/resize)
+    and degrade (v0.4.0, https://gitlab.com/iacl/degrade) are MIT,
+    Copyright 2021 Shuo Han. ECLARE's helper radifox-utils
+    (https://github.com/jh-mipc/radifox-utils) is Apache-2.0 and sigpy-lite is
+    BSD.
+    Cite: Zhao et al., "SMORE: A Self-Supervised Anti-Aliasing and
+    Super-Resolution Algorithm for MRI Using Deep Learning", IEEE Transactions on
+    Medical Imaging 40(3):805-817 (2021). doi:10.1109/TMI.2020.3037187
+    Remedios et al., "Self-supervised super-resolution for anisotropic MR images
+    with and without slice gap", SASHIMI 2023, LNCS, pp. 118-128 (2023).
+    doi:10.1007/978-3-031-44689-4_12
+
 ------------------------------------------------------------------------------
 Standard-space templates
 ------------------------------------------------------------------------------
