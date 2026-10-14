@@ -2,7 +2,8 @@
 #
 # medmcp-neuro-core — neuro-imaging tool stack as a fixed-environment MCP stdio server.
 # GPU (all torch): HD-BET (skull_strip) + antspyx (registration) + FastSurfer
-# (segment_brain). Launched by the core via `docker run -i --device nvidia.com/gpu=all`.
+# (segment_brain) + ECLARE / SMORE (super_resolve). Launched by the core via
+# `docker run -i --device nvidia.com/gpu=all`.
 #
 # segment_brain uses FastSurfer's seg-only pipeline (FastSurferVINN) — no FreeSurfer
 # license required, torch-based, so it rides the same cu128 build and is arm64-capable.
@@ -126,6 +127,18 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --inexact
+
+# ECLARE and SMORE (super_resolve) come from the lock like any other dependency —
+# they are self-supervised, so there are no weights to bake. pyproject overrides
+# their stale numpy/scipy pins (ECLARE's scipy==1.11.4, degrade's numpy==1.23.5) to
+# run on the locked versions, so import their CLI entry points here to fail the
+# build, not the first tool call, if that ever stops working. Importing matplotlib
+# also builds its font cache now rather than on the first offline run.
+RUN /app/.venv/bin/python -c \
+    "import eclare.main, smore.train, smore.test, matplotlib.pyplot" \
+ && test -x /app/.venv/bin/run-eclare \
+ && test -x /app/.venv/bin/smore-train \
+ && test -x /app/.venv/bin/smore-test
 
 # Bake the MNI152 template so register_to_template runs with --network none. Both
 # variants: the skull-stripped (desc-brain) one is what the registration skill uses
