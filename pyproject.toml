@@ -29,8 +29,14 @@ keywords = ["medical", "image processing", "ai-agent", "mcp"]
 requires-python = ">=3.12"
 dependencies = [
     "antspyx>=0.5",
+    # super_resolve. ECLARE from PyPI (GPL-3.0; run as its own CLI, never imported).
+    # SMORE is not on PyPI (the PyPI "smore" is an unrelated marshmallow package), so
+    # it comes from its gitlab tag — see [tool.uv.sources] — and its stale pins are
+    # relaxed in override-dependencies below.
+    "eclare==1.0.1",
     "hd-bet>=2.0.1",
     "mcp>=1.0",
+    "smore==4.0.5",
     # torch/torchvision are pulled transitively by hd-bet; declared directly so the
     # CUDA 12.8 index pin below ([tool.uv.sources]) applies (uv sources only bind
     # direct deps). Pinned to 2.7.1 to MATCH FastSurfer's own pin so the container can
@@ -86,7 +92,28 @@ default-groups = ["dev"]
 # current platform". Restore the missing architecture marker so triton is
 # required on x86_64 only; torch itself has a manylinux_2_28_aarch64 cu128 wheel
 # and does not need triton there.
-override-dependencies = ["triton; sys_platform == 'linux' and platform_machine == 'x86_64'"]
+#
+# The other three relax stale pins in the super-resolution packages, none of which
+# their code needs (verified end-to-end on the image's numpy/scipy):
+# - SMORE v4.0.5 -> degrade v0.4.0 pins numpy==1.23.5, which has no Python 3.12
+#   wheels (and would not build on 3.12). Overridden to a floor.
+# - ECLARE 1.0.1 pins scipy==1.11.4, which caps numpy<1.28 and would drag the whole
+#   stack (HD-BET, nnU-Net, ANTsPy) back to numpy 1.x. It only uses
+#   scipy.interpolate.interp1d and scipy.ndimage.gaussian_filter. Overridden to a floor.
+# - degrade needs `sigpy`, while ECLARE's radifox-utils needs `sigpy-lite`: two
+#   distributions that both install the top-level `sigpy` package and would
+#   overwrite each other's files. sigpy-lite is the same code with numba made
+#   optional, and degrade only uses sigpy.mri.rf, so `sigpy` is dropped and
+#   sigpy-lite provides the module for both.
+# The container runs the locked numpy/scipy (the final `uv sync` restores them after
+# FastSurfer's requirements; `uv pip` there also sees these overrides), and its build
+# imports both CLIs to catch a break.
+override-dependencies = [
+    "triton; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "numpy>=1.26.4",
+    "scipy>=1.11.4",
+    "sigpy; sys_platform == 'never'",
+]
 
 # Pin the PyTorch ecosystem to the CUDA 12.8 build so the GPU image runs on any
 # host driver >= R570 (covers Turing through Blackwell via CUDA backward-compat).
@@ -100,6 +127,8 @@ explicit = true
 [tool.uv.sources]
 torch = { index = "pytorch-cu128" }
 torchvision = { index = "pytorch-cu128" }
+# SMORE's own README installs it from this tag (main == v4.0.5 + README edits).
+smore = { git = "https://gitlab.com/iacl/smore", tag = "v4.0.5" }
 
 [tool.ruff]
 line-length = 100
