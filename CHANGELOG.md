@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `segment_brain` writes `<stem>_labels.csv` (`label,structure`) beside the label map, so the workspace viewer names the structures in its legend.
+- `super_resolve` tool: through-plane super-resolution of anisotropic, thick-slice MRI to isotropic, with `method="eclare"` (ECLARE 1.0.1, default) or `method="smore"` (SMORE v4.0.5). Both are self-supervised (a network is trained on each image, so there are no weights to bake) and run as their upstream CLIs in a subprocess. They need a CUDA GPU: `device="auto"` refuses to fall back to CPU, and there is no MPS. (Near-)isotropic input is skipped with a warning. The result reports input/output voxel sizes and shapes, the device, and the runtime. Output: `{stem}_eclare.nii.gz` / `{stem}_smore.nii.gz`.
+- `super-resolution` SKILL.md: when super-resolution applies, ECLARE vs SMORE, runtime expectations, slice thickness, and output naming.
+
+### Changed
+
+- Dependencies: `eclare` (PyPI) and `smore` (git, gitlab.com/iacl/smore tag v4.0.5) added. `[tool.uv] override-dependencies` relaxes three stale upstream pins that cannot install on Python 3.12 or would downgrade the stack. ECLARE's `scipy==1.11.4` and degrade's `numpy==1.23.5` become `>=` floors. degrade's `sigpy` is dropped in favour of `sigpy-lite` (the same code with numba optional), which ECLARE already brings and which provides the `sigpy` module degrade imports. The locked numpy/scipy are unchanged. The container build imports both CLIs to verify them.
 
 ## [0.1.0]
 
