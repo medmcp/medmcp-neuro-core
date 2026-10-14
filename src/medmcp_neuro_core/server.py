@@ -7,6 +7,7 @@ from mcp.server.fastmcp import FastMCP
 from medmcp_neuro_core.tools.registration import apply_transform, coregister, register_to_template
 from medmcp_neuro_core.tools.segmentation import list_brain_segmentation_labels, segment_brain
 from medmcp_neuro_core.tools.skull_strip import skull_strip, warmup
+from medmcp_neuro_core.tools.super_resolution import super_resolve
 
 mcp = FastMCP("medmcp-neuro-core")
 
@@ -17,6 +18,7 @@ mcp.add_tool(coregister)
 mcp.add_tool(apply_transform)
 mcp.add_tool(segment_brain)
 mcp.add_tool(list_brain_segmentation_labels)
+mcp.add_tool(super_resolve)
 
 
 def server_config() -> dict[str, object]:
