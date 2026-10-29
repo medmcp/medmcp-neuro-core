@@ -8,6 +8,7 @@ import pytest
 
 from medmcp_neuro_core.tools._neuro import Device
 from medmcp_neuro_core.tools.skull_strip import skull_strip
+from tests.images import write_nifti
 
 _SUBPROCESS_RUN = "medmcp_neuro_core.tools.skull_strip.subprocess.run"
 
@@ -38,7 +39,7 @@ def _run_with_mock(
 ) -> tuple[dict[str, object], MagicMock]:
     """Run skull_strip with subprocess.run mocked; return (result, mock_run)."""
     inp = tmp_path / filename
-    inp.touch()
+    write_nifti(inp)
     with patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run:
         result = skull_strip(inp, device=device)
     return result, mock_run  # type: ignore[return-value]
@@ -53,13 +54,26 @@ def test_missing_input_raises(tmp_path: Path) -> None:
         skull_strip(tmp_path / "nonexistent.nii.gz")
 
 
+def test_truncated_input_is_refused(tmp_path: Path) -> None:
+    """A .nii.gz cut short keeps its header; HD-BET must not run on it."""
+    whole = write_nifti(tmp_path / "whole.nii.gz").read_bytes()
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.write_bytes(whole[: len(whole) // 2])
+    with (
+        patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as run,
+        pytest.raises(ValueError, match="truncated or corrupt"),
+    ):
+        skull_strip(inp, device="cpu")
+    run.assert_not_called()
+
+
 # --- output location ---
 
 
 def test_output_written_next_to_input_by_default(tmp_path: Path) -> None:
     """When output_dir is omitted, skull-stripped file is written next to the input."""
     inp = tmp_path / "brain.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     with patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run):
         result = skull_strip(inp)
     assert Path(result["brain_path"]).parent == tmp_path
@@ -68,7 +82,7 @@ def test_output_written_next_to_input_by_default(tmp_path: Path) -> None:
 def test_output_written_to_output_dir(tmp_path: Path) -> None:
     """When output_dir is given, skull-stripped file is written there."""
     inp = tmp_path / "brain.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     out_dir = tmp_path / "stripped"
     with patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run):
         result = skull_strip(inp, output_dir=out_dir)
@@ -97,7 +111,7 @@ def test_accelerator_enables_tta(tmp_path: Path, device: Device) -> None:
 def test_auto_resolves_to_accelerator_and_enables_tta(tmp_path: Path) -> None:
     """device='auto' resolves via resolve_device; an accelerator enables TTA and is reported."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     with (
         patch("medmcp_neuro_core.tools.skull_strip.resolve_device", return_value="cuda"),
         patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run,
@@ -110,7 +124,7 @@ def test_auto_resolves_to_accelerator_and_enables_tta(tmp_path: Path) -> None:
 def test_auto_resolving_to_cpu_disables_tta(tmp_path: Path) -> None:
     """device='auto' resolving to cpu disables TTA and reports the resolved device."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     with (
         patch("medmcp_neuro_core.tools.skull_strip.resolve_device", return_value="cpu"),
         patch(_SUBPROCESS_RUN, side_effect=_mock_subprocess_run) as mock_run,

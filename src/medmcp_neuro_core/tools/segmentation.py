@@ -27,6 +27,7 @@ from medmcp_neuro_core.tools._neuro import (
     cuda_unavailable_note,
     find_binary,
     nii_stem,
+    require_image,
     resolve_device,
 )
 
@@ -418,11 +419,11 @@ def segment_brain(
 
     Raises:
         FileNotFoundError: If input_path does not exist.
-        ValueError: If the input resolution is pathological and force is False.
+        ValueError: If the input is truncated or corrupt, or its resolution is
+            pathological and force is False.
         RuntimeError: If FastSurfer is not installed or segmentation fails.
     """
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input not found: {input_path}")
+    require_image(input_path)
 
     warnings = _check_input(input_path, force=force)
     for warning in warnings:

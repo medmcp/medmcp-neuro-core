@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `segment_brain` writes `<stem>_labels.csv` (`label,structure`) beside the label map, so the workspace viewer names the structures in its legend.
 
+### Fixed
+
+- Every tool refuses a truncated or corrupt input image instead of processing it; `skull_strip` returned an empty brain from a truncated `.nii.gz`.
+
 ## [0.1.0]
 
 First public release. `medmcp-neuro-core` is the neuroimaging tool stack for

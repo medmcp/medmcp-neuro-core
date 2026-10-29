@@ -15,6 +15,7 @@ from medmcp_neuro_core.tools.registration import (
     coregister,
     register_to_template,
 )
+from tests.images import write_nifti
 
 _SUBPROCESS_RUN = "medmcp_neuro_core.tools.registration.subprocess.run"
 _GET_TEMPLATE = "medmcp_neuro_core.tools.registration.get_mni152_1mm"
@@ -83,9 +84,9 @@ def _run_register(
     skull_stripped: bool = False,
 ) -> RegisterToTemplateResult:
     inp = tmp_path / filename
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / (template_name or "MNI152.nii.gz")
-    tmpl.touch()
+    write_nifti(tmpl)
     out = output_dir if output_dir is not None else tmp_path / "out"
     with (
         patch(_CHECK_ANTSPY),
@@ -111,7 +112,7 @@ def test_register_to_template_missing_input_raises(tmp_path: Path) -> None:
 def test_register_to_template_missing_template_raises(tmp_path: Path) -> None:
     """FileNotFoundError when the resolved template does not exist."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmp_path / "missing.nii.gz"),
@@ -129,9 +130,9 @@ def test_register_to_template_bids_output_name(tmp_path: Path) -> None:
 def test_register_to_template_default_output_dir(tmp_path: Path) -> None:
     """When output_dir is omitted, output is written next to the input file."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / "MNI152.nii.gz"
-    tmpl.touch()
+    write_nifti(tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmpl),
@@ -144,9 +145,9 @@ def test_register_to_template_default_output_dir(tmp_path: Path) -> None:
 def test_register_to_template_synquick_payload(tmp_path: Path) -> None:
     """``synquick`` sends type_of_transform=SyNQuick to the subprocess."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / "MNI152.nii.gz"
-    tmpl.touch()
+    write_nifti(tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmpl),
@@ -160,9 +161,9 @@ def test_register_to_template_synquick_payload(tmp_path: Path) -> None:
 def test_register_to_template_syn_payload(tmp_path: Path) -> None:
     """``syn`` sends type_of_transform=SyN to the subprocess."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / "MNI152.nii.gz"
-    tmpl.touch()
+    write_nifti(tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmpl),
@@ -209,9 +210,9 @@ def test_register_to_template_affine_transforms(tmp_path: Path) -> None:
 def test_register_to_template_similarity_payload(tmp_path: Path) -> None:
     """Similarity sends type_of_transform=Similarity to the subprocess."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / "MNI152.nii.gz"
-    tmpl.touch()
+    write_nifti(tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmpl),
@@ -225,9 +226,9 @@ def test_register_to_template_similarity_payload(tmp_path: Path) -> None:
 def test_register_to_template_custom_template_space_label(tmp_path: Path) -> None:
     """Space label is derived from a custom template's filename."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     custom_tmpl = tmp_path / "tpl_MNIPediatricAsym.nii.gz"
-    custom_tmpl.touch()
+    write_nifti(custom_tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
@@ -247,9 +248,9 @@ def test_register_to_template_render_has_next_action(tmp_path: Path) -> None:
 def test_register_to_template_skull_stripped_calls_brain_template(tmp_path: Path) -> None:
     """skull_stripped=True passes skull_stripped=True to get_mni152_1mm."""
     inp = tmp_path / "sub-01_T1w_desc-brain.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / "MNI152_brain.nii.gz"
-    tmpl.touch()
+    write_nifti(tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmpl) as mock_tmpl,
@@ -264,9 +265,9 @@ def test_register_to_template_skull_stripped_calls_brain_template(tmp_path: Path
 def test_register_to_template_no_skull_stripped_calls_full_template(tmp_path: Path) -> None:
     """skull_stripped=False passes skull_stripped=False to get_mni152_1mm."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / "MNI152.nii.gz"
-    tmpl.touch()
+    write_nifti(tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmpl) as mock_tmpl,
@@ -281,9 +282,9 @@ def test_register_to_template_no_skull_stripped_calls_full_template(tmp_path: Pa
 def test_register_to_template_custom_template_ignores_skull_stripped(tmp_path: Path) -> None:
     """When template_path is provided, skull_stripped has no effect on template selection."""
     inp = tmp_path / "sub-01_T1w_desc-brain.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     custom_tmpl = tmp_path / "tpl_custom_brain.nii.gz"
-    custom_tmpl.touch()
+    write_nifti(custom_tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE) as mock_tmpl,
@@ -303,9 +304,9 @@ def test_register_to_template_custom_template_ignores_skull_stripped(tmp_path: P
 def test_register_to_template_subprocess_receives_result_path(tmp_path: Path) -> None:
     """Subprocess payload includes result_path for writing the outcome JSON."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     tmpl = tmp_path / "MNI152.nii.gz"
-    tmpl.touch()
+    write_nifti(tmpl)
     with (
         patch(_CHECK_ANTSPY),
         patch(_GET_TEMPLATE, return_value=tmpl),
@@ -329,10 +330,10 @@ def _run_coregister(
     if moving_names is None:
         moving_names = ["sub-01_FLAIR.nii.gz"]
     fixed = tmp_path / fixed_name
-    fixed.touch()
+    write_nifti(fixed)
     moving = [tmp_path / n for n in moving_names]
     for m in moving:
-        m.touch()
+        write_nifti(m)
     out = output_dir if output_dir is not None else tmp_path / "out"
     with (
         patch(_CHECK_ANTSPY),
@@ -344,7 +345,7 @@ def _run_coregister(
 def test_coregister_missing_fixed_raises(tmp_path: Path) -> None:
     """FileNotFoundError when fixed_path does not exist."""
     moving = tmp_path / "sub-01_FLAIR.nii.gz"
-    moving.touch()
+    write_nifti(moving)
     with (
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Fixed image not found"),
@@ -355,7 +356,7 @@ def test_coregister_missing_fixed_raises(tmp_path: Path) -> None:
 def test_coregister_missing_moving_raises(tmp_path: Path) -> None:
     """FileNotFoundError when a moving image does not exist."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
-    fixed.touch()
+    write_nifti(fixed)
     with (
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Moving image"),
@@ -366,7 +367,7 @@ def test_coregister_missing_moving_raises(tmp_path: Path) -> None:
 def test_coregister_empty_moving_raises(tmp_path: Path) -> None:
     """ValueError when moving_paths is empty."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
-    fixed.touch()
+    write_nifti(fixed)
     with (
         patch(_CHECK_ANTSPY),
         pytest.raises(ValueError, match="moving_paths must not be empty"),
@@ -387,9 +388,9 @@ def test_coregister_bids_output_name(tmp_path: Path) -> None:
 def test_coregister_default_output_dir(tmp_path: Path) -> None:
     """When output_dir is omitted, output is written next to the fixed image."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
-    fixed.touch()
+    write_nifti(fixed)
     moving = tmp_path / "sub-01_FLAIR.nii.gz"
-    moving.touch()
+    write_nifti(moving)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register),
@@ -411,9 +412,9 @@ def test_coregister_multiple_moving(tmp_path: Path) -> None:
 def test_coregister_rigid_payload(tmp_path: Path) -> None:
     """Rigid sends type_of_transform=Rigid in subprocess payload."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
-    fixed.touch()
+    write_nifti(fixed)
     moving = tmp_path / "sub-01_FLAIR.nii.gz"
-    moving.touch()
+    write_nifti(moving)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
@@ -426,9 +427,9 @@ def test_coregister_rigid_payload(tmp_path: Path) -> None:
 def test_coregister_affine_payload(tmp_path: Path) -> None:
     """Affine sends type_of_transform=Affine in subprocess payload."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
-    fixed.touch()
+    write_nifti(fixed)
     moving = tmp_path / "sub-01_FLAIR.nii.gz"
-    moving.touch()
+    write_nifti(moving)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
@@ -454,9 +455,9 @@ def test_coregister_render_lists_registered_paths(tmp_path: Path) -> None:
 def test_coregister_similarity_payload(tmp_path: Path) -> None:
     """Similarity sends type_of_transform=Similarity in subprocess payload."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
-    fixed.touch()
+    write_nifti(fixed)
     moving = tmp_path / "sub-01_FLAIR.nii.gz"
-    moving.touch()
+    write_nifti(moving)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
@@ -491,9 +492,9 @@ def test_coregister_rigid_forward_transforms_list(tmp_path: Path) -> None:
 def test_coregister_subprocess_receives_result_path(tmp_path: Path) -> None:
     """Subprocess payload includes result_path for writing the outcome JSON."""
     fixed = tmp_path / "sub-01_T1w.nii.gz"
-    fixed.touch()
+    write_nifti(fixed)
     moving = tmp_path / "sub-01_FLAIR.nii.gz"
-    moving.touch()
+    write_nifti(moving)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_register) as mock_run,
@@ -518,8 +519,8 @@ def _run_apply(
 ) -> ApplyTransformResult:
     inp = tmp_path / input_name
     ref = tmp_path / ref_name
-    inp.touch()
-    ref.touch()
+    write_nifti(inp)
+    write_nifti(ref)
     tfs = transforms or ["/path/to/1Warp.nii.gz", "/path/to/0GenericAffine.mat"]
     out = output_dir if output_dir is not None else tmp_path / "out"
     with (
@@ -540,7 +541,7 @@ def _run_apply(
 def test_apply_transform_missing_input_raises(tmp_path: Path) -> None:
     """FileNotFoundError when input_path does not exist."""
     ref = tmp_path / "ref.nii.gz"
-    ref.touch()
+    write_nifti(ref)
     with (
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Input not found"),
@@ -551,7 +552,7 @@ def test_apply_transform_missing_input_raises(tmp_path: Path) -> None:
 def test_apply_transform_missing_reference_raises(tmp_path: Path) -> None:
     """FileNotFoundError when reference_path does not exist."""
     inp = tmp_path / "sub-01_brainmask.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     with (
         patch(_CHECK_ANTSPY),
         pytest.raises(FileNotFoundError, match="Reference not found"),
@@ -589,8 +590,8 @@ def test_apply_transform_interpolation_in_payload(tmp_path: Path) -> None:
     """Interpolation is forwarded in the subprocess JSON payload."""
     inp = tmp_path / "sub-01_brainmask.nii.gz"
     ref = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
-    ref.touch()
+    write_nifti(inp)
+    write_nifti(ref)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_apply) as mock_run,
@@ -605,8 +606,8 @@ def test_apply_transform_transforms_in_payload(tmp_path: Path) -> None:
     tfs = ["/warp/1Warp.nii.gz", "/warp/0GenericAffine.mat"]
     inp = tmp_path / "sub-01_brainmask.nii.gz"
     ref = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
-    ref.touch()
+    write_nifti(inp)
+    write_nifti(ref)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_apply) as mock_run,
@@ -620,8 +621,8 @@ def test_apply_transform_invert_flags_in_payload(tmp_path: Path) -> None:
     """invert_flags are forwarded in the subprocess JSON payload."""
     inp = tmp_path / "sub-01_brainmask.nii.gz"
     ref = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
-    ref.touch()
+    write_nifti(inp)
+    write_nifti(ref)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_apply) as mock_run,
@@ -635,8 +636,8 @@ def test_apply_transform_no_invert_flags_omits_key(tmp_path: Path) -> None:
     """When invert_flags is None, the payload key is omitted."""
     inp = tmp_path / "sub-01_brainmask.nii.gz"
     ref = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
-    ref.touch()
+    write_nifti(inp)
+    write_nifti(ref)
     with (
         patch(_CHECK_ANTSPY),
         patch(_SUBPROCESS_RUN, side_effect=_mock_apply) as mock_run,

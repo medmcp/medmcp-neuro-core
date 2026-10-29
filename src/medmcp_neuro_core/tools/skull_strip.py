@@ -8,7 +8,13 @@ from pathlib import Path
 from typing import TypedDict
 
 from medmcp_neuro_core.tools._hdbet_worker import WorkerError, get_worker, persist_enabled
-from medmcp_neuro_core.tools._neuro import Device, cuda_unavailable_note, nii_stem, resolve_device
+from medmcp_neuro_core.tools._neuro import (
+    Device,
+    cuda_unavailable_note,
+    nii_stem,
+    require_image,
+    resolve_device,
+)
 
 
 class SkullStripResult(TypedDict):
@@ -59,10 +65,10 @@ def skull_strip(
 
     Raises:
         FileNotFoundError: If ``input_path`` does not exist.
+        ValueError: If ``input_path`` is truncated or corrupt.
         RuntimeError: If HD-BET inference fails.
     """
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input not found: {input_path}")
+    require_image(input_path)
 
     resolved = resolve_device(device)  # 'auto' -> cuda > mps > cpu; report the resolved one
     out_dir = output_dir if output_dir is not None else input_path.parent
