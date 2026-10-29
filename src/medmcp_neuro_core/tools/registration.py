@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal, TypedDict
 
-from medmcp_neuro_core.tools._neuro import nii_stem
+from medmcp_neuro_core.tools._neuro import nii_stem, require_image
 from medmcp_neuro_core.tools._template import get_mni152_1mm
 
 _MNI_SPACE = "MNI152NLin2009cAsym"
@@ -183,11 +183,11 @@ def register_to_template(
 
     Raises:
         FileNotFoundError: If ``input_path`` or the resolved template does not exist.
+        ValueError: If ``input_path`` is truncated or corrupt.
         RuntimeError: If antspyx is not installed or registration fails.
     """
     _check_antspy()
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input not found: {input_path}")
+    require_image(input_path)
 
     out_dir = output_dir if output_dir is not None else input_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -307,7 +307,7 @@ def coregister(
 
     Raises:
         FileNotFoundError: If ``fixed_path`` or any entry in ``moving_paths`` is missing.
-        ValueError: If ``moving_paths`` is empty.
+        ValueError: If ``moving_paths`` is empty, or an image is truncated or corrupt.
         RuntimeError: If antspyx is not installed or registration fails.
     """
     _check_antspy()
@@ -318,6 +318,9 @@ def coregister(
     missing = [str(p) for p in moving_paths if not p.exists()]
     if missing:
         raise FileNotFoundError(f"Moving image(s) not found: {', '.join(missing)}")
+    require_image(fixed_path, "Fixed image")
+    for moving in moving_paths:
+        require_image(moving, "Moving image")
 
     out_dir = output_dir if output_dir is not None else fixed_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -446,13 +449,12 @@ def apply_transform(
 
     Raises:
         FileNotFoundError: If ``input_path`` or ``reference_path`` does not exist.
+        ValueError: If either image is truncated or corrupt.
         RuntimeError: If antspyx is not installed or the transform fails.
     """
     _check_antspy()
-    if not input_path.exists():
-        raise FileNotFoundError(f"Input not found: {input_path}")
-    if not reference_path.exists():
-        raise FileNotFoundError(f"Reference not found: {reference_path}")
+    require_image(input_path)
+    require_image(reference_path, "Reference")
 
     out_dir = output_dir if output_dir is not None else input_path.parent
     out_dir.mkdir(parents=True, exist_ok=True)

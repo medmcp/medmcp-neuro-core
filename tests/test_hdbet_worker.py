@@ -18,6 +18,7 @@ from medmcp_neuro_core.tools._hdbet_worker import (
     get_worker,
     shutdown_worker,
 )
+from tests.images import write_nifti
 
 _FAKE = Path(__file__).parent / "fake_hdbet_worker.py"
 _FAKE_CMD = [sys.executable, str(_FAKE)]
@@ -98,7 +99,7 @@ def test_skull_strip_uses_warm_worker(monkeypatch: pytest.MonkeyPatch, tmp_path:
     monkeypatch.setattr(_hdbet_worker, "_default_worker_command", lambda: _FAKE_CMD)
     monkeypatch.setenv("MEDMCP_HDBET_PERSIST", "1")
     inp = tmp_path / "t1.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     with patch(
         "medmcp_neuro_core.tools.skull_strip.subprocess.run",
         side_effect=AssertionError("should have used the worker, not the subprocess"),
@@ -126,7 +127,7 @@ def test_skull_strip_falls_back_when_worker_dies(
         raise RuntimeError("subprocess fallback reached")  # enough to prove the path
 
     inp = tmp_path / "t1.nii.gz"
-    inp.touch()
+    write_nifti(inp)
     with (
         patch("medmcp_neuro_core.tools.skull_strip.subprocess.run", side_effect=_fake_subprocess),
         pytest.raises(RuntimeError, match="subprocess fallback reached"),
