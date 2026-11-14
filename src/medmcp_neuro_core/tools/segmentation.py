@@ -501,7 +501,7 @@ def segment_brain(
 
     With ``surfaces=True`` it also starts FastSurfer's surface pipeline (cortical
     surfaces, cortical thickness and area per region, eTIV) as a background job of
-    about an hour; follow it with recon_all_status and read the results with
+    15 to 30 minutes; follow it with recon_all_status and read the results with
     freesurfer_stats. That part runs FreeSurfer's programs and needs the user's
     FreeSurfer licence (free registration), by default at
     ``<workspace>/.medmcp/licenses/freesurfer.txt``; without it the segmentation still
@@ -712,7 +712,7 @@ _SURFACES_RENDER = (
     "tell the user surfaces.note in plain words. Never ask for the licence's contents.\n"
     "If medmcp_job is present: only if it says started: true was the surface pipeline "
     "started; then say so, give surfaces.job_id and surfaces.subject_dir, and say it takes "
-    "about an hour and keeps running in the background (surfaces.note). If medmcp_job does "
+    "15 to 30 minutes and keeps running in the background (surfaces.note). If medmcp_job does "
     "not say started: true, the surfaces were NOT started; say so plainly.\n"
     "Otherwise give surfaces.status and surfaces.note (if failed, surfaces.error).\n"
     "NEXT ACTION for surfaces: the user can ask for progress at any time "

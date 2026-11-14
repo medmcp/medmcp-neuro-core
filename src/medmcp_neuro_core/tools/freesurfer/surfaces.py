@@ -2,7 +2,7 @@
 
 FastSurfer's segmentation needs no licence and takes about a minute; its surface
 pipeline (cortical surfaces, thickness, parcellation stats) runs FreeSurfer's
-programs, so it needs the user's FreeSurfer licence and about an hour of CPU time.
+programs, so it needs the user's FreeSurfer licence and 15 to 30 minutes of CPU time.
 segment_brain therefore runs the segmentation as always, into a FastSurfer subject
 folder, and hands the surfaces to a background job:
 
@@ -33,8 +33,9 @@ KIND = "fastsurfer-surfaces"
 SUBJECTS_FOLDER = "fastsurfer"
 
 TIME_NOTE = (
-    "FastSurfer's surface pipeline takes about an hour per scan on the CPU (the "
-    "segmentation before it takes about a minute on a GPU)."
+    "FastSurfer's surface pipeline takes about 15 to 30 minutes per scan on the CPU "
+    "with 8 threads (longer with fewer); the segmentation before it takes about a "
+    "minute on a GPU."
 )
 
 
