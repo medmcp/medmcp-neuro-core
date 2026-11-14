@@ -35,7 +35,7 @@ def _mock_register(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMoc
     inv: list[str] = [outprefix + "0GenericAffine.mat"]
     inv_flags: list[bool] = [True]
 
-    if ants_type in ("SyN", "SyNQuick"):
+    if ants_type in ("SyN", "antsRegistrationSyNQuick[s]"):
         Path(outprefix + "1Warp.nii.gz").touch()
         Path(outprefix + "1InverseWarp.nii.gz").touch()
         fwd = [outprefix + "1Warp.nii.gz", outprefix + "0GenericAffine.mat"]
@@ -142,7 +142,7 @@ def test_register_to_template_default_output_dir(tmp_path: Path) -> None:
 
 
 def test_register_to_template_synquick_payload(tmp_path: Path) -> None:
-    """``synquick`` sends type_of_transform=SyNQuick to the subprocess."""
+    """``synquick`` sends ANTsPy's name for it, antsRegistrationSyNQuick[s]."""
     inp = tmp_path / "sub-01_T1w.nii.gz"
     inp.touch()
     tmpl = tmp_path / "MNI152.nii.gz"
@@ -154,7 +154,7 @@ def test_register_to_template_synquick_payload(tmp_path: Path) -> None:
     ):
         register_to_template(inp, transform_type="synquick", skull_stripped=False)
     payload = json.loads(mock_run.call_args[1]["input"])
-    assert payload["type_of_transform"] == "SyNQuick"
+    assert payload["type_of_transform"] == "antsRegistrationSyNQuick[s]"
 
 
 def test_register_to_template_syn_payload(tmp_path: Path) -> None:
@@ -650,3 +650,45 @@ def test_apply_transform_render_has_next_action(tmp_path: Path) -> None:
     """_render contains NEXT ACTION directive."""
     result = _run_apply(tmp_path)
     assert "NEXT ACTION" in result["_render"]
+
+
+def test_every_transform_name_is_one_ants_accepts() -> None:
+    """Each mapped name passes ANTsPy's own check (``SyNQuick`` did not, in production)."""
+    ants = pytest.importorskip("ants")
+    import numpy as np
+
+    from medmcp_neuro_core.tools import registration
+
+    names: dict[str, str] = registration._TRANSFORM_MAP  # pyright: ignore[reportPrivateUsage]
+    img = ants.from_numpy(np.zeros((8, 8, 8), dtype="float32"))
+    for name in names.values():
+        try:
+            ants.registration(img, img, type_of_transform=name, verbose=False)
+        except ValueError as exc:
+            assert "does not exist" not in str(exc), name
+        except Exception:  # an all-zero image may fail later; only the name check matters
+            pass
+
+
+def test_child_error_message_reaches_the_user(tmp_path: Path) -> None:
+    """A failing child's own error text is raised, not only its exit code."""
+    inp = tmp_path / "sub-01_T1w.nii.gz"
+    inp.touch()
+    tmpl = tmp_path / "MNI152.nii.gz"
+    tmpl.touch()
+
+    def fail(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMock:
+        result_path = str(json.loads(input)["result_path"])
+        Path(result_path).write_text(json.dumps({"ok": False, "error": "SyNQuick does not exist"}))
+        mock = MagicMock()
+        mock.returncode = 1
+        mock.stderr = "Traceback ...\nValueError"
+        return mock
+
+    with (
+        patch(_CHECK_ANTSPY),
+        patch(_GET_TEMPLATE, return_value=tmpl),
+        patch(_SUBPROCESS_RUN, side_effect=fail),
+        pytest.raises(RuntimeError, match="does not exist"),
+    ):
+        register_to_template(inp, transform_type="synquick", skull_stripped=False)

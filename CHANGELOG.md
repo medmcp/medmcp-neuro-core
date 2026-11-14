@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `register_to_template` / `coregister` with `synquick` failed with "SyNQuick does not exist" (antspyx
+  0.6.3 has no such name); it now runs ANTsPy's `antsRegistrationSyNQuick[s]`.
+- A failing ANTs subprocess now reports its own error message instead of only the exit code.
+
 ### Added
 
 - `segment_brain` writes `<stem>_labels.csv` (`label,structure`) beside the label map, so the workspace viewer names the structures in its legend.

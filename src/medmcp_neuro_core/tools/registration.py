@@ -18,7 +18,9 @@ _TRANSFORM_MAP: dict[str, str] = {
     "rigid": "Rigid",
     "similarity": "Similarity",
     "affine": "Affine",
-    "synquick": "SyNQuick",
+    # ANTsPy has no "SyNQuick"; its quick SyN is antsRegistrationSyNQuick[s] (ANTs' script
+    # of that name, rigid+affine+SyN with reduced iterations).
+    "synquick": "antsRegistrationSyNQuick[s]",
     "syn": "SyN",
 }
 TransformType = Literal["rigid", "similarity", "affine", "synquick", "syn"]
@@ -95,17 +97,18 @@ def _run_antspy(payload: dict[str, object], timeout: int) -> dict[str, object]:
         if proc.stderr:
             sys.stderr.write(proc.stderr)
             sys.stderr.flush()
-        if proc.returncode != 0:
-            raise RuntimeError(f"ANTsPy failed (exit {proc.returncode}): {proc.stderr.strip()}")
-
         try:
             with open(result_path) as f:
                 result: dict[str, object] = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             result = {}
 
+        # The child writes its error to the result file before exiting non-zero; read it
+        # first so the real message ("SyNQuick does not exist") reaches the user, not
+        # only an exit code and a traceback tail.
         if not result.get("ok"):
-            raise RuntimeError(f"ANTsPy failed: {result.get('error', 'unknown')}")
+            detail = result.get("error") or proc.stderr.strip()[-2000:] or "unknown"
+            raise RuntimeError(f"ANTsPy failed (exit {proc.returncode}): {detail}")
 
         return result
     finally:
