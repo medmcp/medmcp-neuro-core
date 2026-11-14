@@ -80,10 +80,56 @@ Standard-space templates
     doi:10.1038/s41592-022-01681-2
 
 ------------------------------------------------------------------------------
+Brain atlases (lesion_load_by_atlas)
+------------------------------------------------------------------------------
+
+Baked into the published container image under
+/root/.medmcp_neuro_core/atlases/<name>/, each with an ATTRIBUTION.txt (source
+URL, SHA-256, licence, changes) and the upstream licence file where one is
+shipped. Only atlases whose licence permits redistribution are included; the
+JHU (ICBM-DTI-81, white-matter tractography), FSL XTRACT, Juelich, Brainnetome
+and Julich-Brain atlases are deliberately NOT bundled.
+
+  - Pandora white matter atlas, TractSeg bundle set (pandora_tractseg).
+    CC BY 4.0. https://github.com/MASILab/Pandora-WhiteMatterAtlas
+    (commit 2caf44296666c13aa5c4d7d1c88d14fe553d9553), also on NITRC
+    (https://www.nitrc.org/projects/pandora_atlas).
+    Changes: the 4-D TractSeg.nii.gz is split into one 3-D file per bundle;
+    values are unchanged.
+    Cite: Hansen et al., "Pandora: 4-D white matter bundle population-based
+    atlases derived from diffusion MRI fiber tractography", Neuroinformatics
+    19:447-460 (2021). doi:10.1007/s12021-020-09497-1
+    Built from Human Connectome Project (WU-Minn Consortium, 1U54MH091657),
+    BLSA and Vanderbilt data.
+
+  - HCP1065 population-probability tract atlas (hcp1065).
+    CC BY-SA 4.0 (share-alike applies to these atlas files only, which are
+    redistributed unmodified). https://github.com/frankyeh/data-atlas
+    (release "hcp1065", hcp1065_prob_coverage_nifti.zip).
+    Cite: Yeh FC, "Population-based tract-to-region connectome of the human
+    brain and its hierarchical topology", Nat Commun 13:4933 (2022).
+    doi:10.1038/s41467-022-32595-4
+    Data were provided in part by the Human Connectome Project, WU-Minn
+    Consortium (Principal Investigators: David Van Essen and Kamil Ugurbil;
+    1U54MH091657) funded by the 16 NIH Institutes and Centers that support the
+    NIH Blueprint for Neuroscience Research; and by the McDonnell Center for
+    Systems Neuroscience at Washington University.
+
+  - Schaefer 2018 cortical parcellations, 100/200/400 parcels, 7 networks
+    (schaefer2018_100, schaefer2018_200, schaefer2018_400), MNI152NLin2009cAsym
+    versions from TemplateFlow.
+    MIT. Copyright (c) 2016 Computational Brain Imaging Group (CBIG).
+    https://github.com/ThomasYeoLab/CBIG
+    Cite: Schaefer et al., "Local-Global Parcellation of the Human Cerebral
+    Cortex from Intrinsic Functional Connectivity MRI", Cerebral Cortex
+    28(9):3095-3114 (2018). doi:10.1093/cercor/bhx179
+
+------------------------------------------------------------------------------
 Bundled libraries
 ------------------------------------------------------------------------------
 
 The Python libraries redistributed inside the container image — including
-PyTorch, nnU-Net (the engine HD-BET builds on), nibabel, and their transitive
+PyTorch, nnU-Net (the engine HD-BET builds on), nibabel, nilearn (BSD-3, the
+lesion_frequency_map figure), and their transitive
 dependency closure — each remain under their own license; the full license texts
 travel with each package's distribution.
