@@ -31,6 +31,8 @@ dependencies = [
     "antspyx>=0.5",
     "hd-bet>=2.0.1",
     "mcp>=1.0",
+    # lesion_frequency_map figure (BSD-3); [plotting] pulls matplotlib.
+    "nilearn[plotting]>=0.11",
     # torch/torchvision are pulled transitively by hd-bet; declared directly so the
     # CUDA 12.8 index pin below ([tool.uv.sources]) applies (uv sources only bind
     # direct deps). Pinned to 2.7.1 to MATCH FastSurfer's own pin so the container can

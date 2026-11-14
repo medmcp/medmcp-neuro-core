@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `lesion_load_by_atlas`: lesion volume per atlas region or white-matter tract (e.g. the corticospinal tract) by voxel counting. The atlas is warped into the lesion mask's space with ANTs (nearest-neighbour for label atlases, linear for probabilistic tract maps), so the mask is never resampled and volumes are native mm³ from its header. Tract atlases report thresholded (`probability_threshold`, default 0.25) and probability-weighted volumes and percentages; writes `<stem>_atlas-<atlas>_lesionload.csv` and returns the atlas attribution.
+- `lesion_frequency_map`: cohort lesion-frequency map (voxel count / n) in MNI152NLin2009cAsym plus a nilearn figure over the template; masks in template space, or native masks with their `forward_transforms`.
+- `list_atlases` and the bundled atlases, baked into the image from pinned, SHA-256-checked sources with attribution: Pandora TractSeg set (CC BY 4.0), HCP1065 (CC BY-SA 4.0, unmodified), Schaefer 2018 100/200/400 parcels (MIT). New `atlas` skill.
+- `nilearn[plotting]` dependency (BSD-3) for the frequency-map figure.
+- `NOTICE` is now copied into the container image.
 - `segment_brain` writes `<stem>_labels.csv` (`label,structure`) beside the label map, so the workspace viewer names the structures in its legend.
 
 ## [0.1.0]
