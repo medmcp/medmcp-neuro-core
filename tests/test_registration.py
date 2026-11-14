@@ -673,10 +673,8 @@ def test_every_transform_name_is_one_ants_accepts() -> None:
 
 def test_child_error_message_reaches_the_user(tmp_path: Path) -> None:
     """A failing child's own error text is raised, not only its exit code."""
-    inp = tmp_path / "sub-01_T1w.nii.gz"
-    inp.touch()
-    tmpl = tmp_path / "MNI152.nii.gz"
-    tmpl.touch()
+    inp = write_nifti(tmp_path / "sub-01_T1w.nii.gz")
+    tmpl = write_nifti(tmp_path / "MNI152.nii.gz")
 
     def fail(cmd: list[str], *, input: str, **_kwargs: object) -> MagicMock:
         result_path = str(json.loads(input)["result_path"])
