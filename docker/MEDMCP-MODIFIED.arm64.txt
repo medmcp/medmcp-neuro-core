@@ -1,0 +1,41 @@
+MODIFIED VERSION OF FREESURFER 8.2.0 (linux/arm64)
+
+This is not the original FreeSurfer distribution. It was assembled by the MedMCP
+project (medmcp-neuro-core) and has not been reviewed, approved or endorsed by The
+General Hospital Corporation (MGH) or the FreeSurfer developers. There is no
+official FreeSurfer build for Linux on arm64.
+
+What was changed, relative to the official freesurfer_ubuntu24-8.2.0_amd64.deb:
+
+1. Every program is an aarch64 build made by MedMCP from the FreeSurfer source
+   (github.com/freesurfer/freesurfer, tag v8.2.0, commit d932c45b), with ITK 5.4.0.
+   Source changes needed for the build: x86-only compiler flags (-msse2
+   -mfpmath=sse) removed; FreeSurfer's own -DARM64 switch set; the Fortran
+   subprojects kept on with GCC 13 (-std=legacy -fallow-invalid-boz
+   -fallow-argument-mismatch); a Martinos-internal post-build copy step disabled.
+   Binaries are stripped of symbols. Scripts, atlases and data files are the
+   official package's, unchanged.
+2. Programs that have no aarch64 build were removed: GUIs and viewers (freeview,
+   tkmedit, tksurfer, ...), MATLAB-runtime tools, diffusion and tractography tools,
+   and the bundled FSL/AFNI/DCMTK copies.
+3. talairach_avi, its 4dfp programs and atlases, which the official 8.2.0 Ubuntu 24
+   package lacks, were built from the same source tree; the atlas images come from
+   FreeSurfer's public git-annex, each checked against its SHA-256 key.
+4. Large parts not used by recon-all's classic stream were removed: the bundled
+   Python 3.8 environment, the deep-learning models (SynthSeg, SynthStrip,
+   SynthMorph, ...), FS-FAST, MATLAB code, the MNI/MINC tools, group-analysis and
+   other atlases, and all subjects except fsaverage. fspython runs the system
+   Python 3.
+
+The version recon-all reports (build-stamp.txt) is
+freesurfer-linux-ubuntu24_aarch64-8.2.0-20260314-d932c45-medmcp-modified.
+
+Supported use in this image: recon-all -all -no-v8 (the classic stream). Results
+can differ slightly from the official x86_64 build (different CPU architecture,
+compiler and floating-point behaviour).
+
+The FreeSurfer Software License Agreement, prefaced as its Part B requires, is in
+/opt/freesurfer/LICENSE-FreeSurfer.txt. The licence files of third-party components
+are in /opt/freesurfer/docs/. A FreeSurfer licence key (free registration at
+https://surfer.nmr.mgh.harvard.edu/registration.html) is required to run it; none
+is included.

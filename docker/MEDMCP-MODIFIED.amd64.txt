@@ -1,0 +1,33 @@
+MODIFIED VERSION OF FREESURFER 8.2.0 (linux/amd64)
+
+This is not the original FreeSurfer distribution. It was assembled by the MedMCP
+project (medmcp-neuro-core) from the official package
+freesurfer_ubuntu24-8.2.0_amd64.deb and has not been reviewed, approved or endorsed
+by The General Hospital Corporation (MGH) or the FreeSurfer developers.
+
+What was changed, relative to the official package:
+
+1. The official programs are unchanged, but many were removed: GUIs and viewers
+   (freeview, tkmedit, tksurfer, ...), MATLAB-runtime tools, diffusion and
+   tractography tools, and the bundled FSL/AFNI/DCMTK copies.
+2. talairach_avi, its 4dfp programs and atlases, which the official 8.2.0 Ubuntu 24
+   package lacks, were built by MedMCP from the FreeSurfer source
+   (github.com/freesurfer/freesurfer, tag v8.2.0, commit d932c45b, the commit the
+   package was built from); the atlas images come from FreeSurfer's public
+   git-annex, each checked against its SHA-256 key.
+3. Large parts not used by recon-all's classic stream were removed: the bundled
+   Python 3.8 environment, the deep-learning models (SynthSeg, SynthStrip,
+   SynthMorph, ...), FS-FAST, MATLAB code, the MNI/MINC tools, group-analysis and
+   other atlases, and all subjects except fsaverage. fspython runs the system
+   Python 3.
+
+The version recon-all reports (build-stamp.txt) is
+freesurfer-linux-ubuntu24_x86_64-8.2.0-20260314-d932c45-medmcp-modified.
+
+Supported use in this image: recon-all -all -no-v8 (the classic stream).
+
+The FreeSurfer Software License Agreement, prefaced as its Part B requires, is in
+/opt/freesurfer/LICENSE-FreeSurfer.txt. The licence files of third-party components
+are in /opt/freesurfer/docs/. A FreeSurfer licence key (free registration at
+https://surfer.nmr.mgh.harvard.edu/registration.html) is required to run it; none
+is included.

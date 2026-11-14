@@ -52,6 +52,10 @@ dependencies = [
 
 [project.scripts]
 medmcp-neuro-core = "medmcp_neuro_core.server:main"
+# Standalone background-job entrypoint (FreeSurfer recon-all, FastSurfer surfaces).
+# Needs nothing from the MCP server, so the same image runs it as a core-managed job
+# container (the image label's "job" entry).
+medmcp-neuro-core-job = "medmcp_neuro_core.job:main"
 
 [project.entry-points."medmcp.stacks"]
 medmcp-neuro-core = "medmcp_neuro_core.server:server_config"
