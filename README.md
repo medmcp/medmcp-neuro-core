@@ -142,6 +142,32 @@ older core the job runs as a detached process in the stack container, which the 
 removes when idle; the result says so. Job records live in
 `<workspace>/.medmcp/freesurfer/jobs/<job_id>/` (`state.json`, `job.log`).
 
+### Validation (FreeSurfer tools)
+
+One open scan, IXI002-Guys T1 (IXI dataset, CC BY-SA 3.0), on an NVIDIA DGX Spark
+(arm64, 20 cores, shared with other work), each run exactly as a MedMCP core runs a
+job (`--network none`, capabilities dropped, non-root, the licence mounted read-only,
+`medmcp-neuro-core-job call ...`):
+
+- **`run_recon_all`**: finished without error in 1.64 h (8 threads, busy host; 0.92 h
+  measured on an idle host). All 19 stats files (aseg, wmparc, aparc, a2009s, DKT, BA,
+  curvature, ...) have values identical to an earlier run of the same FreeSurfer build
+  in the standalone research image. Mean cortical thickness 2.530 mm (lh) / 2.538 mm
+  (rh); white-surface area 80,807 / 81,064 mm²; eTIV 1,545,281 mm³; hippocampus
+  3,975 / 4,146 mm³.
+- **`segment_brain(surfaces=True)`**: the tool's segmentation (GPU, about 1.5 min),
+  then the job's recon-surf in 0.41 h (8 threads, busy host; 0.20 h when run alone);
+  the same result when the job segments by itself. Mean cortical thickness 2.573 mm
+  (lh) / 2.578 mm (rh), i.e. 0.043 / 0.040 mm above recon-all on this scan; eTIV
+  1,553,473 mm³ (+0.5 %); hippocampus 4,123 / 4,264 mm³. FastSurfer's corpus-callosum
+  shape measures (an optional step of its CC module) fail on this arm64 build (a
+  Triangle meshing error); the CC segmentation recon-surf needs is written regardless.
+- `freesurfer_stats` read both subjects (FastSurfer's DKT-mapped parcellation for the
+  FastSurfer run) and wrote the CSVs and the QC image.
+
+One subject, not a validation against the official x86_64 build: an amd64 run of the
+same scan is the next comparison to make.
+
 ---
 
 ## Development
