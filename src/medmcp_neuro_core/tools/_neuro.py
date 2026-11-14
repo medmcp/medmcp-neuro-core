@@ -3,6 +3,7 @@
 import os
 import shutil
 import sys
+import zlib
 from pathlib import Path
 from typing import Literal
 
@@ -18,6 +19,33 @@ def nii_stem(path: Path) -> str:
     if name.endswith(".nii"):
         return name[:-4]
     return path.stem
+
+
+def require_image(path: Path, role: str = "Input") -> None:
+    """Fail early on an image that is missing, truncated or no readable volume.
+
+    Reads the voxel data once: a truncated ``.nii.gz`` keeps a valid header, so only
+    the data shows the damage, and HD-BET would return an empty brain from it.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not exist.
+        ValueError: If the file cannot be read as an image (truncated or corrupt).
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"{role} not found: {path}")
+    import nibabel as nib
+    import numpy as np
+    from nibabel.filebasedimages import ImageFileError
+    from nibabel.spatialimages import SpatialImage
+
+    try:
+        img = nib.load(str(path))  # pyright: ignore[reportUnknownMemberType]
+        if not isinstance(img, SpatialImage):
+            raise ValueError("no voxel geometry")
+        np.asanyarray(img.dataobj)
+    except (OSError, EOFError, ValueError, zlib.error, ImageFileError) as exc:
+        msg = f"{role} is unreadable: the file is truncated or corrupt ({exc}): {path}"
+        raise ValueError(msg) from exc
 
 
 def detect_devices() -> list[str]:
