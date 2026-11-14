@@ -5,6 +5,8 @@ from importlib.resources import files as _pkg_files
 from mcp.server.fastmcp import FastMCP
 
 from medmcp_neuro_core.tools.atlas import lesion_frequency_map, lesion_load_by_atlas, list_atlases
+from medmcp_neuro_core.tools.freesurfer.recon import recon_all_status, run_recon_all
+from medmcp_neuro_core.tools.freesurfer.stats import freesurfer_stats
 from medmcp_neuro_core.tools.registration import apply_transform, coregister, register_to_template
 from medmcp_neuro_core.tools.segmentation import list_brain_segmentation_labels, segment_brain
 from medmcp_neuro_core.tools.skull_strip import skull_strip, warmup
@@ -23,6 +25,11 @@ mcp.add_tool(super_resolve)
 mcp.add_tool(list_atlases)
 mcp.add_tool(lesion_load_by_atlas)
 mcp.add_tool(lesion_frequency_map)
+# FreeSurfer 8.2.0 (needs the user's licence): recon-all as a background job, the
+# status of recon-all and FastSurfer-surface runs, and their stats.
+mcp.add_tool(run_recon_all)
+mcp.add_tool(recon_all_status)
+mcp.add_tool(freesurfer_stats)
 
 
 def server_config() -> dict[str, object]:

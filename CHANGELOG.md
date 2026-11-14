@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- FreeSurfer 8.2.0 in the image (`/opt/freesurfer`), built in its own Dockerfile stages: amd64 from the official Ubuntu 24 package (SHA-256 pinned), arm64 from the v8.2.0 source with ITK 5.4.0 (no official arm64 build exists); both pruned to what recon-all needs and given `talairach_avi`. A modified FreeSurfer, marked as such (`/opt/freesurfer/MEDMCP-MODIFIED.txt`, version string, image label, NOTICE); the licence text ships with MGH's preface. FreeSurfer's environment is given only to the processes that run it. No licence key is ever part of the image.
+- `run_recon_all`: validates one T1 scan and the user's FreeSurfer licence (by path, never read), then runs `recon-all -all -no-v8 -parallel -openmp <threads>` as a background job (about an hour). Without a licence nothing starts and the result explains the free registration.
+- `recon_all_status`: progress of a recon-all or FastSurfer-surface run, or a list of all runs, from files in the workspace only.
+- `freesurfer_stats`: subcortical volumes, thickness/area/volume per Desikan-Killiany region and the global measures (eTIV, mean thickness, ...) as CSV, verbatim from FreeSurfer's stats files, plus a QC image.
+- `segment_brain(surfaces=True)`: FastSurfer's surface pipeline (recon-surf: surfaces, cortical thickness, eTIV) on top of the segmentation, as a background job; needs the FreeSurfer licence (without one the segmentation still runs and the result says `licence_required`). The FastSurfer corpus-callosum checkpoints are now baked, as recon-surf requires them.
+- Background jobs: the image label declares `medmcp-neuro-core-job call` for `run_recon_all` and `segment_brain`; a core that runs stack jobs starts them in their own container, an older core gets a detached process in the stack container.
+- The `segmentation` skill decides between the FastSurfer segmentation, FastSurfer surfaces and FreeSurfer recon-all (time, licence, how to follow a run).
 - `lesion_load_by_atlas`: lesion volume per atlas region or white-matter tract (e.g. the corticospinal tract) by voxel counting. The atlas is warped into the lesion mask's space with ANTs (nearest-neighbour for label atlases, linear for probabilistic tract maps), so the mask is never resampled and volumes are native mm³ from its header. Tract atlases report thresholded (`probability_threshold`, default 0.25) and probability-weighted volumes and percentages; writes `<stem>_atlas-<atlas>_lesionload.csv` and returns the atlas attribution.
 - `lesion_frequency_map`: cohort lesion-frequency map (voxel count / n) in MNI152NLin2009cAsym plus a nilearn figure over the template; masks in template space, or native masks with their `forward_transforms`.
 - `list_atlases` and the bundled atlases, baked into the image from pinned, SHA-256-checked sources with attribution: Pandora TractSeg set (CC BY 4.0), HCP1065 (CC BY-SA 4.0, unmodified), Schaefer 2018 100/200/400 parcels (MIT). New `atlas` skill.
@@ -26,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The image's `ENTRYPOINT` is `tini --` with `medmcp-neuro-core` as the default `CMD`, so the same image runs the job entrypoint.
 - Dependencies: `eclare` (PyPI) and `smore` (git, gitlab.com/iacl/smore tag v4.0.5) added. `[tool.uv] override-dependencies` relaxes three stale upstream pins that cannot install on Python 3.12 or would downgrade the stack. ECLARE's `scipy==1.11.4` and degrade's `numpy==1.23.5` become `>=` floors. degrade's `sigpy` is dropped in favour of `sigpy-lite` (the same code with numba optional), which ECLARE already brings and which provides the `sigpy` module degrade imports. The locked numpy/scipy are unchanged. The container build imports both CLIs to verify them.
 
 ### Fixed

@@ -1,6 +1,6 @@
 # medmcp-neuro-core
 
-Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Exposes an **MCP (Model Context Protocol) server** over stdio that an LLM agent can invoke to perform brain extraction, image registration, whole-brain segmentation, super-resolution of thick-slice MRI, and related neuroimaging operations.
+Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Exposes an **MCP (Model Context Protocol) server** over stdio that an LLM agent can invoke to perform brain extraction, image registration, whole-brain segmentation, cortical surfaces and thickness (FastSurfer, FreeSurfer), super-resolution of thick-slice MRI, and related neuroimaging operations.
 
 <p align="center">
   <a href="https://medmcp.ai"><b>medmcp.ai</b></a> ·
@@ -13,6 +13,14 @@ Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Expose
 > [!WARNING]
 > MedMCP and its ecosystem are research software under active development and are **not licensed for clinical use**.
 
+> [!IMPORTANT]
+> The image contains **FreeSurfer 8.2.0 in a modified form** (pruned on both
+> architectures, `talairach_avi` added, and on **arm64 built from source by MedMCP**,
+> as FreeSurfer has no official Linux arm64 build). It is not the original FreeSurfer
+> distribution and is not endorsed by MGH or the FreeSurfer developers. See
+> [FreeSurfer in the image](#freesurfer-in-the-image). The FreeSurfer tools need
+> **your own FreeSurfer licence** (free registration); none ships with the image.
+
 ---
 
 ## Tool inventory
@@ -23,12 +31,15 @@ Neuroimaging tools for the [medmcp](https://github.com/medmcp) ecosystem. Expose
 | `register_to_template` | Normalize a structural image to MNI152NLin2009cAsym (or a custom template); the template is baked into the container image, and downloaded on first use when running from source. Selects the brain-extracted template variant when `skull_stripped=True`. | `input_path: Path`, `transform_type: "rigid"\|"similarity"\|"affine"\|"synquick"\|"syn"`, `skull_stripped: bool`, `output_dir: Path \| None = None`, `template_path: Path \| None = None` | `{"registered_path": "...", "transform_prefix": "...", "forward_transforms": [...], "inverse_transforms": [...], "inverse_invert_flags": [...], "template_path": "...", "transform_type": "...", "_render": "..."}` |
 | `coregister` | Align multiple same-subject images to a common reference (e.g. FLAIR, T2w, b0 → T1w). Ask the user which transform type to use before calling | `fixed_path: Path`, `moving_paths: list[Path]`, `transform_type: "rigid"\|"similarity"\|"affine"\|"synquick"\|"syn"`, `output_dir: Path \| None = None` | `{"registered_paths": [...], "transform_prefixes": [...], "forward_transforms_list": [[...]], "inverse_transforms_list": [[...]], "inverse_invert_flags_list": [[...]], "fixed_path": "...", "transform_type": "...", "_render": "..."}` |
 | `apply_transform` | Apply a pre-computed ANTs transform to additional images (brain masks, lesion maps, parcellations) without re-running registration | `input_path: Path`, `reference_path: Path`, `transforms: list[str]`, `output_dir: Path \| None = None`, `interpolation: "Linear"\|"NearestNeighbor"\|"BSpline" = "Linear"`, `output_space: str \| None = None`, `invert_flags: list[bool] \| None = None` | `{"output_path": "...", "_render": "..."}` |
-| `segment_brain` | Whole-brain segmentation using FastSurfer (FastSurferVINN, seg-only — **no FreeSurfer license**). T1w only; accepts full-head or skull-stripped input. Outputs a `.mgz` label map, a `label,structure` CSV naming its ids, and a per-structure volume CSV. Sanity-checks contrast/resolution (returns warnings; blocks strongly anisotropic/thick-slice data unless `force=True`). | `input_path: Path`, `output_dir: Path \| None = None`, `device: str = "auto"`, `threads: int = 4`, `force: bool = False` | `{"seg_path": "...", "labels_path": "...", "volumes_path": "...", "input_path": "...", "device": "...", "warnings": [...], "_render": "..."}` |
+| `segment_brain` | Whole-brain segmentation using FastSurfer (FastSurferVINN, seg-only — **no FreeSurfer license**). T1w only; accepts full-head or skull-stripped input. Outputs a `.mgz` label map, a `label,structure` CSV naming its ids, and a per-structure volume CSV. Sanity-checks contrast/resolution (returns warnings; blocks strongly anisotropic/thick-slice data unless `force=True`). With `surfaces=True` it segments into a FastSurfer subject folder (`<output_dir>/fastsurfer/<scan>/`) and starts FastSurfer's surface pipeline (recon-surf: surfaces, cortical thickness, parcellation stats, eTIV) as a **background job** of about an hour; that part needs your FreeSurfer licence — without one the segmentation still runs and `surfaces.status` is `licence_required`. | `input_path: Path`, `output_dir: Path \| None = None`, `device: str = "auto"`, `threads: int = 4`, `force: bool = False`, `surfaces: bool = False`, `license_path: str \| None = None` | `{"seg_path": "...", "labels_path": "...", "volumes_path": "...", "input_path": "...", "device": "...", "warnings": [...], "surfaces": null \| {"status", "job_id", "subject_dir", "log", "error", "note"}, "medmcp_job": null \| {...}, "_render": "..."}` |
 | `list_brain_segmentation_labels` | List all brain structures measured by `segment_brain`. Returns the exact structure names used in the volume CSV for a given `parc` setting. | `parc: bool = True` | `{"parc": ..., "total_structures": ..., "subcortical_and_global": [...], "cortical_parcels": [...], "_render": "..."}` |
 | `super_resolve` | Super-resolve an anisotropic, thick-slice (2D-acquired) MRI volume to isotropic at the in-plane resolution with **ECLARE** (default) or **SMORE** v4. Self-supervised: no pretrained weights, a network is trained on each image (~30 min ECLARE / ~1.5 h SMORE per volume on an NVIDIA GB10 at default settings). Writes `{stem}_eclare.nii.gz` / `{stem}_smore.nii.gz`; (near-)isotropic input is skipped with a warning. Needs a CUDA GPU (`auto` refuses to fall back to CPU, `cpu` must be explicit; no MPS). | `input_path: Path`, `method: "eclare"\|"smore" = "eclare"`, `output_dir: Path \| None = None`, `device: "auto"\|"cuda"\|"cpu" = "auto"`, `slice_thickness_mm: float \| None = None`, `n_patches: int \| None = None` | `{"output_path": "..." \| null, "input_path": "...", "method": "...", "device": "...", "skipped": ..., "input_voxel_size_mm": [...], "output_voxel_size_mm": [...], "input_shape": [...], "output_shape": [...], "through_plane_axis": ..., "n_patches": ..., "runtime_sec": ..., "warnings": [...], "_render": "..."}` |
 | `list_atlases` | List the bundled, redistributable atlases (tract atlases `pandora_tractseg`, `hcp1065`; cortical `schaefer2018_100/200/400`) with kind, space and licence | — | `{"atlases": [{"name", "kind", "title", "space", "licence"}], "_render": "..."}` |
 | `lesion_load_by_atlas` | Lesion volume per atlas region or white-matter tract (e.g. corticospinal tract) by voxel counting. The atlas is warped into the mask's space with ANTs (nearest-neighbour for labels, linear for tract probability maps); the mask is never resampled, so volumes are native mm³ from its header. Tract atlases report thresholded (`probability_threshold`, default 0.25) and probability-weighted volumes and % of tract. Writes a CSV; the result carries the atlas attribution. | `lesion_mask_path: Path`, `atlas: str`, `inverse_transforms: list[str] \| None`, `inverse_invert_flags: list[bool] \| None`, `mask_in_template_space: bool = False`, `probability_threshold: float = 0.25`, `output_dir: Path \| None = None`, `save_warped_atlas: bool = False` | `{"csv_path", "lesion_volume_mm3", "rows_with_lesion": [...], "corticospinal_rows": [...], "method", "attribution", "_render", ...}` |
 | `lesion_frequency_map` | Cohort lesion-frequency map in MNI152NLin2009cAsym (voxel count / n) plus a nilearn figure over the template. Masks already in template space, or native masks with per-mask `forward_transforms` (warped nearest-neighbour). Counting only. | `lesion_mask_paths: list[Path]`, `output_dir: Path`, `forward_transforms_list: list[list[str]] \| None = None`, `output_prefix: str = "cohort"` | `{"frequency_map_path", "count_map_path", "figure_path", "n_masks", "max_frequency", "voxels_with_any_lesion", "_render", ...}` |
+| `run_recon_all` | Validates one T1 scan (3D, resolution, field of view, contrast hint, workspace paths, existing subject folder) and your FreeSurfer licence, then runs FreeSurfer `recon-all -all -no-v8 -parallel -openmp <threads>` as a **background job** (about 1 h per scan). Without a licence nothing starts and the result explains the free registration. | `t1_path`, `output_dir`, `subject_id=None`, `license_path=None`, `threads=8`, `pipeline="classic"`, `force=False` | `status`, `job_id`, `subject_dir`, `command`, input `warnings`, `medmcp_job` (job request to the core) |
+| `recon_all_status` | Progress of one recon-all or FastSurfer-surface run (pipeline, current step, rough % and time left for recon-all), or a list of all runs; reads only files in the workspace, so it works from any chat | `job_or_subject=None` (job id, subject folder or subject id) | `pipeline`, `status` (running / done / failed / interrupted), `current_step`, `percent_done`, `elapsed`, `estimated_remaining`, `runtime_hours`, `error`, log paths |
+| `freesurfer_stats` | FreeSurfer's own numbers from a finished recon-all or FastSurfer-surface subject, as CSV, plus a QC image | `subject_dir`, `output_dir=None`, `qc_snapshot=True` | `volumes_csv` (aseg.stats), `parcels_csv` (lh/rh.aparc.stats: thickness, area, volume per region), `measures_csv` (eTIV, totals, mean thickness), `qc_png`, per-hemisphere mean thickness and white-surface area |
 
 ## Skill inventory
 
@@ -37,7 +48,7 @@ Skills are SKILL.md files the agent loads on demand to follow multi-step workflo
 | Skill name | Description |
 |---|---|
 | `registration` | Workflow for template normalization and within-subject coregistration. Instructs the agent to present all transform options and wait for the user to choose; covers native↔template warping, the two-step multi-contrast workflow (coregister→apply_transform), transform composition, and label interpolation. |
-| `segmentation` | Workflow for whole-brain segmentation and structure volumetry (e.g. thalamic volume) with FastSurfer. Covers confirming T1w input, not skull-stripping first, reading a specific structure's volume out of the CSV, and head-size normalization (via the license-free `BrainSegVol`, not ICV/eTIV) when comparing subjects. |
+| `segmentation` | Workflow for whole-brain segmentation and structure volumetry (e.g. thalamic volume) with FastSurfer, and the choice between the FastSurfer segmentation (fast, no licence), FastSurfer surfaces and FreeSurfer recon-all (cortical thickness; licence, about an hour, background job). Covers confirming T1w input, not skull-stripping first, reading a specific structure's volume out of the CSV, head-size normalization (license-free `BrainSegVol`, or eTIV from the surface pipelines), the licence instructions, following a background run and reading its stats. |
 | `super-resolution` | Workflow for super-resolving thick-slice MRI with ECLARE or SMORE. Covers when it applies (one coarse through-plane axis, 2D acquisitions), choosing the method, setting runtime expectations before starting (per-image training), the optional acquired slice thickness, output naming, and the caveat that through-plane detail is synthesized. |
 | `atlas` | Workflow for lesion load per atlas region/tract (e.g. corticospinal tract) and cohort lesion-frequency maps. Covers getting the template→native transforms (incl. FLAIR masks via coregistration), choosing an atlas, the threshold, and wording results as atlas overlap rather than clinical claims. |
 
@@ -51,13 +62,51 @@ Skills are SKILL.md files the agent loads on demand to follow multi-step workflo
 |---|---|---|---|
 | HD-BET (nnU-Net-based brain extraction) | `skull_strip` | weights downloaded via `hd-bet` to `~/hd-bet_params/` (baked into the image) | [Apache 2.0](https://github.com/MIC-DKFZ/HD-BET/blob/master/LICENSE) |
 | ANTs / ANTsPy | `register_to_template`, `coregister`, `apply_transform` | [`antspyx`](https://github.com/ANTsX/ANTsPy) package dependency | [Apache 2.0](https://github.com/ANTsX/ANTsPy/blob/master/LICENSE) |
-| FastSurfer (FastSurferVINN, seg-only) | `segment_brain` | checkpoint downloaded from the [FastSurfer](https://github.com/Deep-MI/FastSurfer) repo (baked into the image) | [Apache 2.0](https://github.com/Deep-MI/FastSurfer/blob/stable/LICENSE) |
+| FastSurfer (FastSurferVINN segmentation, corpus-callosum module, recon-surf) | `segment_brain` | checkpoints downloaded from the [FastSurfer](https://github.com/Deep-MI/FastSurfer) repo (VINN and CC; baked into the image) | [Apache 2.0](https://github.com/Deep-MI/FastSurfer/blob/stable/LICENSE) |
+| FreeSurfer 8.2.0 (programs, scripts, atlases, fsaverage), **modified** | `run_recon_all`, `freesurfer_stats`, `segment_brain(surfaces=True)` (recon-surf runs FreeSurfer's programs) | amd64: official `freesurfer_ubuntu24-8.2.0_amd64.deb` (SHA-256 pinned); arm64: built from [github.com/freesurfer/freesurfer](https://github.com/freesurfer/freesurfer) v8.2.0 (commit d932c45b) with the package's data; both pruned, see [FreeSurfer in the image](#freesurfer-in-the-image) | [FreeSurfer Software License](licenses/FreeSurfer-LICENSE.txt), prefaced as its Part B requires (in the image: `/opt/freesurfer/LICENSE-FreeSurfer.txt`) |
+| talairach_avi and 4dfp atlases | recon-all's Talairach step | built from the same FreeSurfer source; atlas images from FreeSurfer's public git-annex, SHA-256 checked | FreeSurfer Software License |
+| ITK 5.4.0 (arm64 only, linked statically) / ITK 5.3 runtime (amd64 only, Ubuntu `libinsighttoolkit5.3`) | FreeSurfer programs | [InsightSoftwareConsortium/ITK](https://github.com/InsightSoftwareConsortium/ITK) | Apache-2.0 (`/opt/freesurfer/docs/license.itk.txt`, `notice.itk.txt`) |
+| Third-party code inside FreeSurfer (VXL, NetCDF, libjpeg, dcm2niix, ...); reference BLAS/LAPACK (arm64, static) | FreeSurfer programs | FreeSurfer distribution; Ubuntu packages | their own licences, in `/opt/freesurfer/docs/license.*.txt` |
 | ECLARE | `super_resolve` (`method="eclare"`) | [`eclare`](https://pypi.org/project/eclare/) 1.0.1 package dependency ([source](https://github.com/sremedios/ECLARE)); self-supervised, no weights | [GPL-3.0](https://github.com/sremedios/ECLARE/blob/main/LICENSE). Runs as its own program (`run-eclare` subprocess) and is never imported |
 | SMORE v4 | `super_resolve` (`method="smore"`) | [`smore`](https://gitlab.com/iacl/smore) v4.0.5 git dependency, with its [`resize`](https://gitlab.com/iacl/resize) and [`degrade`](https://gitlab.com/iacl/degrade) helpers; self-supervised, no weights | Apache 2.0 (declared in [`setup.py`](https://gitlab.com/iacl/smore/-/blob/v4.0.5/setup.py); the repo ships no LICENSE file); `resize`/`degrade` [MIT](https://gitlab.com/iacl/degrade/-/blob/v0.4.0/LICENSE.txt) |
 | MNI152NLin2009cAsym template | `register_to_template` | retrieved from [TemplateFlow](https://github.com/templateflow/tpl-MNI152NLin2009cAsym) (baked into the image) | [template license](https://github.com/templateflow/tpl-MNI152NLin2009cAsym/blob/master/LICENSE) |
 | Pandora white-matter atlas, TractSeg set (72 bundles incl. CST) | `lesion_load_by_atlas` | [MASILab/Pandora-WhiteMatterAtlas](https://github.com/MASILab/Pandora-WhiteMatterAtlas), pinned commit (baked into the image, split into 3-D maps) | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | HCP1065 population-probability tract atlas (64 tracts) | `lesion_load_by_atlas` | [frankyeh/data-atlas](https://github.com/frankyeh/data-atlas/releases/tag/hcp1065) (baked into the image, unmodified) | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) (atlas files only) |
 | Schaefer 2018 cortical parcellations (100/200/400, 7 networks) | `lesion_load_by_atlas` | [TemplateFlow](https://github.com/templateflow/tpl-MNI152NLin2009cAsym) MNI152NLin2009cAsym versions (baked into the image) | [MIT](https://github.com/ThomasYeoLab/CBIG/blob/master/LICENSE.md) |
+
+### FreeSurfer in the image
+
+FreeSurfer is built in its own stages of the [`Dockerfile`](Dockerfile) (scripts in
+[`docker/`](docker/)) and copied into the image as `/opt/freesurfer`. It is **not on
+the image-wide `PATH`** and `FREESURFER_HOME` is not set image-wide: the tools give
+FreeSurfer's environment only to the recon-all and recon-surf processes they start,
+so FastSurfer's segmentation, ANTs and HD-BET see the same environment as before.
+
+| | linux/amd64 | linux/arm64 |
+|---|---|---|
+| FreeSurfer programs | official 8.2.0 binaries, unchanged | aarch64 build from the 8.2.0 source by MedMCP (modified: x86-only compiler flags removed, FreeSurfer's `-DARM64` switch set, Fortran kept on with GCC 13 legacy flags, a Martinos-internal post-build step disabled, stripped) |
+| talairach_avi | built from source by MedMCP (missing from the official package) | same |
+| Removed (both) | GUIs and viewers (freeview, tk*), MATLAB-runtime tools, diffusion/tractography, FS-FAST, bundled FSL/AFNI/DCMTK, the Python 3.8 environment and deep-learning models (v8 stream, Synth*), MNI/MINC tools, group-analysis atlases, subjects other than fsaverage | same |
+| Marked as modified | `/opt/freesurfer/MEDMCP-MODIFIED.txt`, `build-stamp.txt` and recon-all's version string end in `-medmcp-modified`, image label `org.medmcp.freesurfer.modified=true`, [`NOTICE`](NOTICE) | same |
+
+Consequences: only the classic stream (`recon-all -all -no-v8`) is supported; there is
+no viewer (the QC image is a quick check, not a surface review); and recon-all's
+last-resort Talairach fallback (MINC `mritotal`) is not available. FastSurfer 2.5.4 is
+written against FreeSurfer 7.4.1; the surface pipeline runs it on 8.2.0 with
+`--ignore_fs_version`.
+
+**Licence key.** FreeSurfer's programs need the user's own licence file (free
+registration at <https://surfer.nmr.mgh.harvard.edu/registration.html>), saved in the
+workspace as `.medmcp/licenses/freesurfer.txt` (or passed as `license_path`). The
+tools check only that it exists and hand its *path* to FreeSurfer as `FS_LICENSE`;
+they never read, copy, log or print it, and no image or repository contains one.
+
+**Notices.** The FreeSurfer Software License Agreement, prefaced with MGH's sentence
+as its Part B.1(b) requires, is [`licenses/FreeSurfer-LICENSE.txt`](licenses/FreeSurfer-LICENSE.txt)
+and `/opt/freesurfer/LICENSE-FreeSurfer.txt` in the image; FreeSurfer's own
+copyright notices and the third-party licences it ships (VXL, NetCDF, ...) are kept in
+`/opt/freesurfer/docs/`, with ITK's and BLAS/LAPACK's beside them on arm64; what was
+changed is in `/opt/freesurfer/MEDMCP-MODIFIED.txt` and [`NOTICE`](NOTICE).
 
 ### Citation
 
@@ -66,6 +115,7 @@ These are third-party scientific methods. **If you use `medmcp-neuro-core` resul
 - **HD-BET** — Isensee F, et al. Automated brain extraction of multi-sequence MRI using artificial neural networks. *Human Brain Mapping* (2019). [doi:10.1002/hbm.24750](https://doi.org/10.1002/hbm.24750)
 - **ANTs / ANTsPy** — Tustison NJ, et al. The ANTsX ecosystem for quantitative biological and medical imaging. *Scientific Reports* 11, 9068 (2021). [doi:10.1038/s41598-021-87564-6](https://doi.org/10.1038/s41598-021-87564-6)
 - **FastSurfer** — Henschel L, et al. FastSurfer – A fast and accurate deep learning based neuroimaging pipeline. *NeuroImage* 219, 117012 (2020). [doi:10.1016/j.neuroimage.2020.117012](https://doi.org/10.1016/j.neuroimage.2020.117012). FastSurferVINN — Henschel L, et al. *NeuroImage* 251, 118933 (2022). [doi:10.1016/j.neuroimage.2022.118933](https://doi.org/10.1016/j.neuroimage.2022.118933)
+- **FreeSurfer** (`run_recon_all`, and the FreeSurfer programs behind FastSurfer's surface pipeline) — Fischl B. FreeSurfer. *NeuroImage* 62(2), 774–781 (2012). [doi:10.1016/j.neuroimage.2012.01.021](https://doi.org/10.1016/j.neuroimage.2012.01.021). Cortical surfaces — Dale AM, Fischl B, Sereno MI. *NeuroImage* 9(2), 179–194 (1999). [doi:10.1006/nimg.1998.0395](https://doi.org/10.1006/nimg.1998.0395). Cortical thickness — Fischl B, Dale AM. *PNAS* 97(20), 11050–11055 (2000). [doi:10.1073/pnas.200033797](https://doi.org/10.1073/pnas.200033797). Subcortical segmentation — Fischl B, et al. *Neuron* 33(3), 341–355 (2002). [doi:10.1016/S0896-6273(02)00569-X](https://doi.org/10.1016/S0896-6273(02)00569-X). Desikan-Killiany atlas — Desikan RS, et al. *NeuroImage* 31(3), 968–980 (2006). [doi:10.1016/j.neuroimage.2006.01.021](https://doi.org/10.1016/j.neuroimage.2006.01.021)
 - **ECLARE** — Remedios SW, et al. ECLARE: efficient cross-planar learning for anisotropic resolution enhancement. *Journal of Medical Imaging* 13(2), 024001 (2026). [doi:10.1117/1.JMI.13.2.024001](https://doi.org/10.1117/1.JMI.13.2.024001)
 - **SMORE** — Zhao C, et al. SMORE: A Self-Supervised Anti-Aliasing and Super-Resolution Algorithm for MRI Using Deep Learning. *IEEE Transactions on Medical Imaging* 40(3), 805–817 (2021). [doi:10.1109/TMI.2020.3037187](https://doi.org/10.1109/TMI.2020.3037187). SMORE v4 (the bundled version) — Remedios SW, et al. Self-supervised super-resolution for anisotropic MR images with and without slice gap. *SASHIMI 2023*, LNCS, 118–128 (2023). [doi:10.1007/978-3-031-44689-4_12](https://doi.org/10.1007/978-3-031-44689-4_12)
 - **MNI152NLin2009cAsym template** — Fonov V, et al. Unbiased average age-appropriate atlases for pediatric studies. *NeuroImage* 54(1), 313–327 (2011). [doi:10.1016/j.neuroimage.2010.07.033](https://doi.org/10.1016/j.neuroimage.2010.07.033). Retrieved via TemplateFlow — Ciric R, et al. *Nature Methods* 19, 1568–1571 (2022). [doi:10.1038/s41592-022-01681-2](https://doi.org/10.1038/s41592-022-01681-2)
@@ -78,7 +128,19 @@ Full third-party attribution is in [`NOTICE`](NOTICE).
 
 ### Hardware requirements
 
-`skull_strip` supports CPU (TTA disabled) and GPU (`device="cuda"` for NVIDIA, `device="mps"` for Apple Silicon), and is substantially faster on GPU. `register_to_template`, `coregister`, and `apply_transform` call ANTsPy, which is installed automatically as a package dependency and is CPU-only; registration time varies with image size and hardware — `syn` is significantly slower than the other transform types. `segment_brain` (FastSurfer) auto-detects the device (`device="auto"`) and is substantially faster on a GPU (`cuda`/`mps`) than on CPU. `super_resolve` (ECLARE/SMORE) trains a network per image and in practice needs an NVIDIA GPU (see the `super-resolution` skill for measured runtimes). CPU has to be requested explicitly and takes many hours. Apple MPS is not supported upstream.
+`skull_strip` supports CPU (TTA disabled) and GPU (`device="cuda"` for NVIDIA, `device="mps"` for Apple Silicon), and is substantially faster on GPU. `register_to_template`, `coregister`, and `apply_transform` call ANTsPy, which is installed automatically as a package dependency and is CPU-only; registration time varies with image size and hardware — `syn` is significantly slower than the other transform types. `segment_brain` (FastSurfer) auto-detects the device (`device="auto"`) and is substantially faster on a GPU (`cuda`/`mps`) than on CPU. `super_resolve` (ECLARE/SMORE) trains a network per image and in practice needs an NVIDIA GPU (see the `super-resolution` skill for measured runtimes). CPU has to be requested explicitly and takes many hours. Apple MPS is not supported upstream. `run_recon_all` and FastSurfer's surface pipeline (`segment_brain(surfaces=True)`) are CPU-only after the segmentation and take about an hour per scan with 8 threads (see Validation below); peak memory about 3 GB per run, about 0.3 GB of disk per subject.
+
+### Background jobs
+
+recon-all and FastSurfer's surface pipeline never run inside a tool call. With a
+MedMCP core that runs stack jobs, the core reads the image label's `job` entry and
+runs `medmcp-neuro-core-job call run_recon_all '<approved arguments>'` (or
+`call segment_brain '<arguments with surfaces=true>'`) in a container of its own (no
+network, the workspace as its only mount), so the run survives an idle or closed chat
+and a core restart; the job validates the arguments exactly as the tool does. With an
+older core the job runs as a detached process in the stack container, which the core
+removes when idle; the result says so. Job records live in
+`<workspace>/.medmcp/freesurfer/jobs/<job_id>/` (`state.json`, `job.log`).
 
 ---
 
@@ -121,7 +183,8 @@ This stack also ships as a GPU container with a fixed environment:
 just docker-build           # build medmcp-neuro-core:dev (FROM medmcp-base)
 ```
 
-It is a stdio MCP server (`ENTRYPOINT ["tini", "--", "medmcp-neuro-core"]`). The medmcp
+It is a stdio MCP server (`ENTRYPOINT ["tini", "--"]`, `CMD ["medmcp-neuro-core"]`; the
+same image runs background jobs as `medmcp-neuro-core-job call <tool> '<arguments>'`). The medmcp
 **core** launches it on demand via a `stacks.d/medmcp-neuro-core.toml` manifest
 (`docker run -i --device nvidia.com/gpu=all …`, CDI/rootless), so deployment nodes
 need no host Python install. torch is pinned to the **cu128 (CUDA 12.8)** build, so
@@ -130,7 +193,28 @@ drivers via CUDA backward-compatibility). All tools — `skull_strip`, the regis
 tools, `segment_brain`, and `super_resolve` — work in-container; `segment_brain` is backed by
 **FastSurfer** (seg-only, no FreeSurfer license), whose seg dependencies share the
 single application venv (torch is pinned to FastSurfer's `2.7.1`, so HD-BET, antspyx,
-and FastSurfer all use one CUDA stack), with the FastSurferVINN checkpoint baked at build.
+and FastSurfer all use one CUDA stack), with the FastSurferVINN and corpus-callosum
+checkpoints baked at build.
+
+FreeSurfer is built in Dockerfile stages that depend only on their own inputs (pinned
+versions and checksums, `docker/`), so they are reused from the build cache until
+FreeSurfer or its recipe changes. A **cold arm64 build** compiles ITK and FreeSurfer
+(about 30 min to an hour on 20 cores, far longer on a 4-core runner); amd64
+downloads and prunes the 8.9 GB official package. To reuse a local copy of the
+package, serve it and pass
+`--build-arg FS_DEB_URL=http://127.0.0.1:<port>/freesurfer_ubuntu24-8.2.0_amd64.deb`
+with `--network host`; the SHA-256 is checked either way. CI keeps the FreeSurfer
+stages in a registry cache of their own (`buildcache-freesurfer-<arch>`, mode=max).
+
+End-to-end test with your own licence (mounted read-only into the workspace, never
+copied):
+
+```bash
+docker run --rm --network none \
+  -v "$WS:$WS" -v "$LICENCE:$WS/.medmcp/licenses/freesurfer.txt:ro" \
+  medmcp-neuro-core:dev medmcp-neuro-core-job call run_recon_all \
+  "{\"t1_path\": \"$WS/T1.nii.gz\", \"output_dir\": \"$WS/freesurfer\"}"
+```
 
 ### Staying in sync with the template
 
@@ -168,4 +252,4 @@ This project follows the [all-contributors](https://allcontributors.org) specifi
 
 ## License
 
-[Apache 2.0](LICENSE). Third-party tools, model weights, and templates bundled by this stack retain their own licenses and are attributed in [`NOTICE`](NOTICE).
+[Apache 2.0](LICENSE). Third-party tools, model weights, and templates bundled by this stack retain their own licenses and are attributed in [`NOTICE`](NOTICE). The published image also contains FreeSurfer, under the [FreeSurfer Software License Agreement](licenses/FreeSurfer-LICENSE.txt) (in the image as `/opt/freesurfer/LICENSE-FreeSurfer.txt`), in a modified form (see [FreeSurfer in the image](#freesurfer-in-the-image)). Using FreeSurfer requires your own licence key from <https://surfer.nmr.mgh.harvard.edu/registration.html>.

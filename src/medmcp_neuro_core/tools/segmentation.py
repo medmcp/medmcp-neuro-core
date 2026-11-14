@@ -4,6 +4,11 @@ Runs FastSurfer's deep-learning whole-brain segmentation (``aparc.DKTatlas+aseg`
 *without* the surface pipeline, so **no FreeSurfer license is required** (the
 ``--fs_license`` flag only gates surface reconstruction, which we do not run).
 
+With ``surfaces=True`` it also starts FastSurfer's surface pipeline (cortical
+surfaces and thickness, see :mod:`medmcp_neuro_core.tools.freesurfer.surfaces`) as a
+background job; that part runs FreeSurfer's programs and needs the user's
+FreeSurfer licence.
+
 Produces a discrete label map (FreeSurfer ``.mgz``, rendered natively by the
 workspace viewer) plus a per-structure volume CSV derived from FastSurfer's own
 ``segstats`` (no ``mri_segstats``/FreeSurfer dependency). GPU-accelerated through
@@ -16,11 +21,12 @@ match the aseg / DKT-atlas names that appear in the stats output.
 import csv
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from medmcp_neuro_core.tools._neuro import (
     Device,
@@ -29,6 +35,17 @@ from medmcp_neuro_core.tools._neuro import (
     nii_stem,
     require_image,
     resolve_device,
+)
+from medmcp_neuro_core.tools.freesurfer import _jobs
+from medmcp_neuro_core.tools.freesurfer import surfaces as _surf
+from medmcp_neuro_core.tools.freesurfer._license import LicenseMissingError
+from medmcp_neuro_core.tools.freesurfer.recon import (
+    JOB_NOTE,
+    RESEARCH_NOTE,
+    SESSION_WARNING,
+    core_runs_jobs,
+    launch_job,
+    watch_startup,
 )
 
 # --- input sanity thresholds ---------------------------------------------------
@@ -133,7 +150,13 @@ _CORTICAL_PARCEL_NAMES: list[str] = [
 
 
 class SegmentResult(TypedDict):
-    """Brain segmentation result."""
+    """Brain segmentation result.
+
+    ``surfaces`` and ``medmcp_job`` are null unless ``surfaces=True`` was asked for:
+    then ``surfaces`` says what became of the surface run, and ``medmcp_job`` (when
+    MedMCP runs it as a background job) is the request to the core, replaced by the
+    core with what it did about it.
+    """
 
     seg_path: str
     labels_path: str
@@ -141,6 +164,8 @@ class SegmentResult(TypedDict):
     input_path: str
     device: str
     warnings: list[str]
+    surfaces: dict[str, Any] | None
+    medmcp_job: dict[str, Any] | None
     _render: str
 
 
@@ -181,6 +206,16 @@ def _find_fastsurfer() -> str:
             "at /opt/FastSurfer; set $FASTSURFER_HOME or $RUN_FASTSURFER otherwise."
         )
     return binary
+
+
+def find_fastsurfer() -> str:
+    """Public alias of :func:`_find_fastsurfer` (for the job entrypoint)."""
+    return _find_fastsurfer()
+
+
+def fastsurfer_python() -> str | None:
+    """Public alias of :func:`_fastsurfer_python` (for the job entrypoint)."""
+    return _fastsurfer_python()
 
 
 def _fastsurfer_python() -> str | None:
@@ -383,12 +418,76 @@ def _check_input(input_path: Path, force: bool) -> list[str]:
     return warnings
 
 
+def prepare_segment_surfaces(
+    input_path: Path,
+    output_dir: Path | None = None,
+    device: Device = "auto",
+    threads: int = 4,
+    force: bool = False,
+    surfaces: bool = False,
+    license_path: str | None = None,
+) -> dict[str, Any]:
+    """Validate a ``segment_brain(surfaces=True)`` call for the job entrypoint.
+
+    The same checks as segment_brain makes before it starts anything (readable image,
+    resolution, licence, paths, a subject folder without a previous surface run), so
+    the job refuses what the tool refuses.
+
+    Raises:
+        ValueError: ``surfaces`` is not True (only that call runs as a job), or the
+            image or a path is refused.
+        LicenseMissingError: no FreeSurfer licence file.
+        FileExistsError: the surface pipeline already ran in this subject folder.
+    """
+    if not surfaces:
+        raise ValueError("segment_brain runs as a job only with surfaces=True")
+    require_image(input_path)
+    warnings = _check_input(input_path, force=force)
+    request = _surf.prepare_surfaces(input_path, output_dir, device, threads, force, license_path)
+    request["warnings"] = warnings
+    return request
+
+
+def _surfaces_licence_required(message: str) -> dict[str, Any]:
+    return {
+        "status": "licence_required",
+        "job_id": None,
+        "subject_dir": None,
+        "error": message,
+        "note": message,
+    }
+
+
+def _start_surfaces(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Hand the surface run to the core (or start it here). Returns (surfaces, medmcp_job)."""
+    jdir = _jobs.job_dir(Path(str(request["registry"])), str(request["job_id"]))
+    info: dict[str, Any] = {
+        "job_id": str(request["job_id"]),
+        "subject_dir": str(request["subject_dir"]),
+        "log": str(jdir / _jobs.LOG_FILE),
+        "threads": int(request["threads"]),
+        "error": None,
+    }
+    if core_runs_jobs():
+        info["status"] = "requested"
+        info["note"] = f"{JOB_NOTE} {_surf.TIME_NOTE}"
+        return info, {"name": f"FastSurfer surfaces {request['subject_id']}"}
+    proc = launch_job(request, "segment_brain", _surf.job_arguments(request))
+    seen = watch_startup(request, proc)
+    info["status"] = str(seen["status"])
+    info["error"] = str(seen["error"]) if seen.get("error") else None
+    info["note"] = f"{SESSION_WARNING} {_surf.TIME_NOTE}"
+    return info, None
+
+
 def segment_brain(
     input_path: Path,
     output_dir: Path | None = None,
     device: Device = "auto",
     threads: int = 4,
     force: bool = False,
+    surfaces: bool = False,
+    license_path: str | None = None,
 ) -> SegmentResult:
     """Segment brain structures from a NIfTI image using FastSurfer.
 
@@ -399,6 +498,14 @@ def segment_brain(
 
     Outputs a discrete label map (``.mgz``) and a per-structure volume CSV. Call
     list_brain_segmentation_labels() to see the structures and CSV column names.
+
+    With ``surfaces=True`` it also starts FastSurfer's surface pipeline (cortical
+    surfaces, cortical thickness and area per region, eTIV) as a background job of
+    about an hour; follow it with recon_all_status and read the results with
+    freesurfer_stats. That part runs FreeSurfer's programs and needs the user's
+    FreeSurfer licence (free registration), by default at
+    ``<workspace>/.medmcp/licenses/freesurfer.txt``; without it the segmentation still
+    runs and ``surfaces.status`` is ``licence_required`` with instructions.
 
     The input is sanity-checked first (see _check_input): a filename that names a
     non-T1w contrast is flagged as a warning, and strongly anisotropic / thick-slice
@@ -412,6 +519,11 @@ def segment_brain(
         threads: CPU threads for pre/post-processing. Default 4.
         force: Run even when the input resolution is outside FastSurfer's supported
             range (otherwise such inputs raise ValueError). Default False.
+        surfaces: Also run FastSurfer's surface pipeline (licence needed, about an
+            hour, background job). Results go to ``<output_dir>/fastsurfer/<subject>/``.
+            Default False.
+        license_path: The FreeSurfer licence file for ``surfaces=True``, if not at the
+            default location. Must be inside the workspace.
 
     Returns:
         SegmentResult with paths to the segmentation label map and volume CSV, plus
@@ -429,6 +541,26 @@ def segment_brain(
     for warning in warnings:
         print(f"[medmcp-neuro-core] segment: WARNING: {warning}", file=sys.stderr, flush=True)
 
+    surf_request: dict[str, Any] | None = None
+    surf_info: dict[str, Any] | None = None
+    medmcp_job: dict[str, Any] | None = None
+    if surfaces:
+        try:
+            surf_request = _surf.prepare_surfaces(
+                input_path, output_dir, device, threads, force, license_path
+            )
+        except LicenseMissingError as exc:
+            # The segmentation needs no licence: it still runs.
+            surf_info = _surfaces_licence_required(str(exc))
+    if surf_request is not None:
+        jdir = _jobs.job_dir(Path(str(surf_request["registry"])), str(surf_request["job_id"]))
+        current = _jobs.read_state(jdir)
+        if current is not None and _jobs.effective_status(current) in _jobs.ACTIVE:
+            raise RuntimeError(
+                f"FastSurfer's surface pipeline for {surf_request['subject_id']} is already "
+                f"running (job {surf_request['job_id']}); use recon_all_status to follow it."
+            )
+
     binary = _find_fastsurfer()
     resolved_device = resolve_device(device)
 
@@ -438,6 +570,21 @@ def segment_brain(
     seg_path = out_dir / f"{stem}_dseg.mgz"
     labels_path = out_dir / f"{stem}_labels.csv"
     volumes_path = out_dir / f"{stem}_volumes.csv"
+
+    if surf_request is not None:
+        stats_path = _segment_into_subject(surf_request, binary, resolved_device, seg_path)
+        _write_volume_tables(stats_path, volumes_path, labels_path)
+        surf_info, medmcp_job = _start_surfaces(surf_request)
+        return _segment_result(
+            seg_path,
+            labels_path,
+            volumes_path,
+            input_path,
+            resolved_device,
+            warnings,
+            surf_info,
+            medmcp_job,
+        )
 
     # FastSurfer writes into <sd>/<sid>/; use a scratch SUBJECTS_DIR and point the
     # seg + stats outputs at absolute paths, then surface them to out_dir.
@@ -494,28 +641,106 @@ def segment_brain(
                 flush=True,
             )
 
-        # Volume CSV from FastSurfer's own stats (no FreeSurfer mri_segstats). Append
-        # BrainSegVol (total brain-segmentation volume) as a final row: it's a derived
-        # whole-brain measure FastSurfer computes license-free, useful for normalising
-        # structure volumes by head size across subjects (eTIV would need Talairach
-        # registration, which requires a FreeSurfer license, so we don't compute it).
-        structure_rows = _parse_aseg_stats(stats_path)
-        brain_seg_vol = _parse_measure(stats_path, "BrainSegVol")
-        with open(volumes_path, "w", newline="") as fh:
-            writer = csv.writer(fh)
-            writer.writerow(["structure", "volume_mm3"])
-            writer.writerows(structure_rows)
-            if brain_seg_vol is not None:
-                writer.writerow(["BrainSegVol", brain_seg_vol])
-        _write_labels_csv(stats_path, labels_path)
+        _write_volume_tables(stats_path, volumes_path, labels_path)
 
+    return _segment_result(
+        seg_path, labels_path, volumes_path, input_path, resolved_device, warnings, surf_info, None
+    )
+
+
+def _write_volume_tables(stats_path: Path, volumes_path: Path, labels_path: Path) -> None:
+    """The volumes CSV and the labels CSV, from FastSurfer's own stats file."""
+    # Volume CSV from FastSurfer's own stats (no FreeSurfer mri_segstats). Append
+    # BrainSegVol (total brain-segmentation volume) as a final row: it's a derived
+    # whole-brain measure FastSurfer computes license-free, useful for normalising
+    # structure volumes by head size across subjects (eTIV would need Talairach
+    # registration, which requires a FreeSurfer license, so we don't compute it).
+    structure_rows = _parse_aseg_stats(stats_path)
+    brain_seg_vol = _parse_measure(stats_path, "BrainSegVol")
+    with open(volumes_path, "w", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["structure", "volume_mm3"])
+        writer.writerows(structure_rows)
+        if brain_seg_vol is not None:
+            writer.writerow(["BrainSegVol", brain_seg_vol])
+    _write_labels_csv(stats_path, labels_path)
+
+
+def _segment_into_subject(
+    request: dict[str, Any], binary: str, device: str, seg_path: Path
+) -> Path:
+    """FastSurfer's segmentation into the subject folder recon-surf will build on.
+
+    Returns the segmentation's stats file; the label map is copied to *seg_path* (the
+    same output a segment_brain call without surfaces writes).
+
+    Raises:
+        RuntimeError: the segmentation did not produce what recon-surf needs.
+    """
+    subject = Path(str(request["subject_dir"]))
+    Path(str(request["subjects_dir"])).mkdir(parents=True, exist_ok=True)
+    cmd = _surf.seg_command(request, binary, _fastsurfer_python(), device)
+    print(
+        f"[medmcp-neuro-core] segment: running FastSurfer on {Path(cmd[2]).name} "
+        f"(device={device}, into {subject} for the surface pipeline)...",
+        file=sys.stderr,
+        flush=True,
+    )
+    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+        sys.stderr.flush()
+    stats_path = subject / "stats" / "aseg+DKT.VINN.stats"
+    deep_seg = subject / "mri" / "aparc.DKTatlas+aseg.deep.mgz"
+    # As above, the exit code is not the success signal: FastSurfer can exit non-zero
+    # on an optional last step (the corpus-callosum shape measures) after writing
+    # everything. What recon-surf needs, and the stats, must be there.
+    if not _surf.segmentation_present(subject) or not stats_path.is_file():
+        note = cuda_unavailable_note() if device == "cuda" else ""
+        tail = (proc.stdout or "")[-1500:].strip()
+        raise RuntimeError(
+            f"FastSurfer failed (exit {proc.returncode}): {proc.stderr.strip()} {tail}.{note}"
+        )
+    shutil.copyfile(deep_seg, seg_path)
+    return stats_path
+
+
+_SURFACES_RENDER = (
+    "\nSURFACES (only if 'surfaces' is not null):\n"
+    "If surfaces.status is licence_required: say the segmentation above is done, but the "
+    "surface pipeline was NOT started because FreeSurfer needs the user's licence file; "
+    "tell the user surfaces.note in plain words. Never ask for the licence's contents.\n"
+    "If medmcp_job is present: only if it says started: true was the surface pipeline "
+    "started; then say so, give surfaces.job_id and surfaces.subject_dir, and say it takes "
+    "about an hour and keeps running in the background (surfaces.note). If medmcp_job does "
+    "not say started: true, the surfaces were NOT started; say so plainly.\n"
+    "Otherwise give surfaces.status and surfaces.note (if failed, surfaces.error).\n"
+    "NEXT ACTION for surfaces: the user can ask for progress at any time "
+    "(recon_all_status with surfaces.job_id), also from a new chat; when it is done, "
+    "freesurfer_stats(surfaces.subject_dir) gives cortical thickness, area and eTIV. Do "
+    "not poll in a loop unless asked. Mention once: " + RESEARCH_NOTE
+)
+
+
+def _segment_result(
+    seg_path: Path,
+    labels_path: Path,
+    volumes_path: Path,
+    input_path: Path,
+    device: str,
+    warnings: list[str],
+    surfaces: dict[str, Any] | None,
+    medmcp_job: dict[str, Any] | None,
+) -> SegmentResult:
     result: SegmentResult = {
         "seg_path": str(seg_path),
         "labels_path": str(labels_path),
         "volumes_path": str(volumes_path),
         "input_path": str(input_path),
-        "device": resolved_device,
+        "device": device,
         "warnings": warnings,
+        "surfaces": surfaces,
+        "medmcp_job": medmcp_job,
         "_render": (
             "DISPLAY RULES — follow exactly:\n"
             "If 'warnings' is non-empty, surface each warning to the user FIRST — the "
@@ -536,6 +761,7 @@ def segment_brain(
             "to normalise structure volumes by head size when comparing across subjects. If "
             "the image was registered to a template, offer to warp the label map using "
             "apply_transform with interpolation=NearestNeighbor."
+            + (_SURFACES_RENDER if surfaces is not None else "")
         ),
     }
     return result

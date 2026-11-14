@@ -1,6 +1,6 @@
 ---
 name: segmentation
-description: Workflow for whole-brain segmentation and structure volumetry (e.g. thalamic volume) using FastSurfer
+description: Workflow for whole-brain segmentation and structure volumetry (e.g. thalamic volume) using FastSurfer, and for cortical surfaces and cortical thickness with FastSurfer's surface pipeline or FreeSurfer recon-all
 ---
 
 # Brain segmentation & volumetry workflow
@@ -15,7 +15,47 @@ seg-only) to label cortical and subcortical structures and produce a per-structu
   hippocampus, ventricles) or a whole-brain label map.
 - The user wants subcortical/cortical morphometry on a T1w scan.
 
-## Steps
+## Which pipeline: segmentation, FastSurfer surfaces, or FreeSurfer recon-all?
+
+Decide before starting: two of the three take about an hour and need a licence.
+
+| Need | Use | Time | Licence |
+|---|---|---|---|
+| Volumes of subcortical structures or DKT cortical parcels, a label map | `segment_brain(...)` (FastSurfer segmentation) | about 1 min on a GPU | none |
+| Cortical **thickness**, surface area, surfaces, eTIV, quickly | `segment_brain(..., surfaces=True)` (FastSurfer segmentation + its surface pipeline, recon-surf) | segmentation now, then about **1 h** CPU in the background | FreeSurfer licence |
+| The **reference FreeSurfer pipeline** (to match published FreeSurfer studies, or the user asks for FreeSurfer / recon-all) | `run_recon_all(t1_path, output_dir)` | about **1 h** per scan (8 threads), background | FreeSurfer licence |
+
+- Default to the plain segmentation for volumes. Offer the surface options only when
+  the user needs thickness, area, surfaces or eTIV, or asks for FreeSurfer.
+- FastSurfer surfaces and recon-all give comparable, not identical, thickness: do not
+  mix the two pipelines, or either with the plain segmentation's volumes, within one
+  comparison.
+- **The licence** (both surface options): FreeSurfer's programs need the user's own
+  licence file. It is free: register at
+  https://surfer.nmr.mgh.harvard.edu/registration.html and save the emailed
+  `license.txt` in the workspace as `.medmcp/licenses/freesurfer.txt` (or pass
+  `license_path` to a file inside the workspace). Without it, `run_recon_all` starts
+  nothing and `segment_brain(surfaces=True)` still segments but returns
+  `surfaces.status: licence_required`; relay the instructions and wait. Never ask the
+  user to paste the licence into the chat, and never print or read its contents.
+- **Background jobs**: both hour-long runs return at once with a `job_id` and keep
+  running when the chat is idle or closed. Tell the user so; they can ask for progress
+  at any time, also from a new chat: `recon_all_status(job_id)` (or the subject
+  folder, or no argument to list every run). Do not poll in a loop. When it is
+  `done`, `freesurfer_stats(subject_dir)` gives per-hemisphere mean thickness and
+  white-surface area, eTIV and the subcortical volumes, writes CSVs (volumes;
+  thickness/area/volume per region; global measures) and a QC image. For a FastSurfer
+  run the subject folder is `surfaces.subject_dir` (`<output_dir>/fastsurfer/<scan>`).
+- MedMCP runs only a few background jobs at a time and does not queue them: if a start
+  is refused for that reason, say so and start the next scan when one finishes.
+- recon-all runs FreeSurfer's classic stream (`recon-all -all -no-v8`); FreeSurfer 8's
+  Synth* stream is not in the image. A subject folder is never overwritten: a second
+  run needs a new `subject_id` / `output_dir`, and an interrupted run is started again,
+  not resumed.
+- Results are research use only (FreeSurfer is not approved for clinical use). Report
+  FreeSurfer's numbers as given; normalising by eTIV is the user's call.
+
+## Steps (segmentation)
 
 1. **Confirm the input is T1w.** FastSurfer is trained on T1-weighted MRI (MPRAGE
    is the canonical sequence, but any T1w — MP2RAGE, SPGR, … — is fine; do **not**

@@ -7,11 +7,214 @@
 #
 # segment_brain uses FastSurfer's seg-only pipeline (FastSurferVINN) — no FreeSurfer
 # license required, torch-based, so it rides the same cu128 build and is arm64-capable.
+#
+# FreeSurfer 8.2.0 (run_recon_all, and FastSurfer's surface pipeline behind
+# segment_brain(surfaces=True)) is built in the stages below and copied into the
+# image as /opt/freesurfer. Those stages depend only on their own inputs -- the
+# pinned versions and checksums here and the scripts in docker/ -- never on the
+# Python environment or the source, so a build reuses them from the cache (CI keeps
+# them in a registry cache of their own, see .github/workflows/images.yml) until
+# FreeSurfer or its build recipe changes. Multi-arch:
+#
+#   linux/amd64  the official FreeSurfer 8.2.0 Ubuntu 24 package (sha256-pinned),
+#                with talairach_avi added (the package lacks it, see
+#                docker/talairach-avi.sh) and pruned to what recon-all needs.
+#   linux/arm64  the same package with every program replaced by an aarch64 build
+#                from the FreeSurfer v8.2.0 source (there is no official Linux arm64
+#                build): ITK 5.4.0 and FreeSurfer are compiled here, a cold build of
+#                about 30 min to an hour on 20 cores.
+#
+# This is a MODIFIED version of FreeSurfer and is marked as such (image label, NOTICE,
+# /opt/freesurfer/MEDMCP-MODIFIED.txt), as the FreeSurfer licence requires. Both
+# architectures download the 8.9 GB package once (a local copy can be served with
+# --build-arg FS_DEB_URL=http://127.0.0.1:<port>/... and --network host; the
+# SHA-256 is checked either way). No FreeSurfer licence key is, or may ever be, part
+# of this image: the tools read the user's own key from the workspace at run time.
 ARG BASE_IMAGE=medmcp-base:dev
+
+ARG FS_VERSION=8.2.0
+ARG FS_DEB_URL=https://surfer.nmr.mgh.harvard.edu/pub/dist/freesurfer/8.2.0/freesurfer_ubuntu24-8.2.0_amd64.deb
+ARG FS_DEB_SHA256=a52996ed5147e5b7f1bd537c8405537cc2b133ae7075616b0c38975986a236a6
+# The commit the official 8.2.0 package was built from (its build-stamp.txt).
+ARG FS_GIT_TAG=v8.2.0
+ARG FS_GIT_COMMIT=d932c45b7941662ea380a05efef580568b98d41a
+ARG ITK_GIT_TAG=v5.4.0
+
+# ── 1. The official package, extracted and pruned ───────────────────────────────
+# Architecture-independent file work, so it runs on the build platform natively.
+FROM --platform=$BUILDPLATFORM ubuntu:24.04 AS fs-package
+ARG FS_DEB_URL
+ARG FS_DEB_SHA256
+ARG FS_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+COPY --chmod=0755 docker/prune-freesurfer.sh /usr/local/bin/
+# Download, verify, then extract without the largest unused parts (the rest is
+# pruned by the script). One layer, so the 8.9 GB package never lands in one.
+RUN set -eux; \
+    curl -fSL --retry 5 -o /tmp/fs.deb "$FS_DEB_URL"; \
+    echo "$FS_DEB_SHA256  /tmp/fs.deb" | sha256sum -c -; \
+    p="./usr/local/freesurfer/$FS_VERSION"; \
+    mkdir /tmp/x; \
+    dpkg-deb --fsys-tarfile /tmp/fs.deb | tar -x -C /tmp/x \
+        --exclude="$p/models" --exclude="$p/python/lib" --exclude="$p/python/packages" \
+        --exclude="$p/trctrain" --exclude="$p/average/mult-comp-cor" \
+        --exclude="$p/average/samseg" --exclude="$p/subjects/cvs_avg35*" \
+        --exclude="$p/mni-1.4" --exclude="$p/lib/tktools" \
+        "$p"; \
+    rm /tmp/fs.deb; \
+    mv "/tmp/x/usr/local/freesurfer/$FS_VERSION" /opt/freesurfer; \
+    rm -rf /tmp/x; \
+    prune-freesurfer.sh /opt/freesurfer; \
+    # recon-all records this version in every subject's logs: mark the distribution
+    # as modified there too (the arm64 stage also corrects the architecture).
+    grep -q "^setenv FS_RECON_VERSION '8.2.0 (freesurfer-linux-ubuntu24_x86_64-8.2.0-20260314-d932c45)'" \
+        /opt/freesurfer/bin/recon-all; \
+    sed -i "s/^\(setenv FS_RECON_VERSION '8.2.0 (freesurfer-linux-ubuntu24_x86_64-8.2.0-20260314-d932c45\))'/\1-medmcp-modified)'/" \
+        /opt/freesurfer/bin/recon-all
+
+# ── 2. talairach_avi, built from source (both architectures) ────────────────────
+FROM ubuntu:24.04 AS talairach
+ARG FS_GIT_TAG
+ARG FS_GIT_COMMIT
+ARG FS_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git gcc gfortran libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch "$FS_GIT_TAG" --filter=blob:none --sparse \
+        https://github.com/freesurfer/freesurfer.git /src/freesurfer \
+    && cd /src/freesurfer && git sparse-checkout set talairach_avi \
+    && test "$(git rev-parse HEAD)" = "$FS_GIT_COMMIT"
+COPY --chmod=0755 docker/talairach-avi.sh /usr/local/bin/
+# The legacy Fortran compiles warn a lot; show the log only when the build fails.
+RUN talairach-avi.sh /src/freesurfer /stage "$FS_VERSION-medmcp" > /tmp/talairach.log 2>&1 \
+    || { grep -v -i -e warning -e '^ *|' /tmp/talairach.log | tail -60; exit 1; }
+
+# ── 3a. amd64: the official programs ────────────────────────────────────────────
+FROM scratch AS fs-amd64
+COPY --from=fs-package /opt/freesurfer /opt/freesurfer
+COPY --from=talairach /stage/ /opt/freesurfer/
+COPY docker/MEDMCP-MODIFIED.amd64.txt /opt/freesurfer/MEDMCP-MODIFIED.txt
+# recon-all prints this as its version and records it in every subject's logs.
+COPY docker/build-stamp.amd64.txt /opt/freesurfer/build-stamp.txt
+
+# ── 3b. arm64: ITK 5.4.0 + FreeSurfer v8.2.0 from source ────────────────────────
+# As in the build notes (2026-11-13/14): ITK from source against the system zlib;
+# FreeSurfer with MINIMAL=OFF and GUIs off, its macOS-arm64 switch (-DARM64), the
+# x86-only -msse2 flags removed, the Fortran subprojects kept on with the aarch64
+# libgfortran/BLAS/LAPACK paths and legacy-Fortran flags, the system Python
+# standing in for the bundled fspython, and a Martinos-internal copy step disabled.
+FROM ubuntu:24.04 AS build-arm64
+ARG FS_GIT_TAG
+ARG FS_GIT_COMMIT
+ARG ITK_GIT_TAG
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential gfortran cmake git ca-certificates file xxd \
+        python3 python3-dev python3-setuptools python3-numpy \
+        zlib1g-dev libblas-dev liblapack-dev libgomp1 libx11-dev libxmu-dev \
+        libglu1-mesa-dev libeigen3-dev tcsh bc perl libjpeg-dev libtiff-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone --depth 1 --branch "$ITK_GIT_TAG" https://github.com/InsightSoftwareConsortium/ITK.git itk \
+    && cmake -S itk -B itk-build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        -DBUILD_EXAMPLES=OFF -DBUILD_SHARED_LIBS=OFF -DCMAKE_INSTALL_PREFIX=/opt/itk \
+        -DITK_USE_SYSTEM_EIGEN=OFF -DITK_USE_SYSTEM_ZLIB=ON -DCMAKE_CXX_FLAGS="-Wno-error" \
+    && (cmake --build itk-build -j"$(nproc)" > itk-make.log 2>&1 \
+        || { grep -m 40 -i "error" itk-make.log; exit 1; }) \
+    && cmake --install itk-build > /dev/null \
+    && rm -rf itk-build itk itk-make.log
+RUN git clone --depth 1 --branch "$FS_GIT_TAG" https://github.com/freesurfer/freesurfer.git \
+    && test "$(git -C freesurfer rev-parse HEAD)" = "$FS_GIT_COMMIT"
+WORKDIR /src/freesurfer
+# Source changes for the aarch64 build (each one fails the build if it no longer applies).
+RUN set -eux; \
+    grep -q 'if(HOST_OS MATCHES "Ubuntu24")' python/fsbindings/CMakeLists.txt; \
+    sed -i 's/if(HOST_OS MATCHES "Ubuntu24")/if(FALSE)/' python/fsbindings/CMakeLists.txt; \
+    # x86-only flags hard-coded in gems/ and python/gems/ (and in dcm2niix's x86
+    # branch). Each of these checks fails the build if it no longer holds.
+    files=$(grep -rl --include=CMakeLists.txt -e "-msse2 -mfpmath=sse" .); \
+    test -n "$files"; \
+    echo "$files" | xargs sed -i 's/ -msse2 -mfpmath=sse//g'; \
+    if grep -rq --include=CMakeLists.txt -e "-mfpmath=sse" .; then exit 1; fi; \
+    python3 - <<'PY'
+p = "CMakeLists.txt"
+s = open(p).read()
+old = """        ## while does not compile...
+        set(BUILD_FORTRAN OFF)
+     endif()
+     ## otherwise using gcc 8"""
+assert old in s, "Fortran switch-off block not found"
+s = s.replace(old, """        ## arm64 build: Fortran kept on (talairach_avi)
+     endif()
+     ## otherwise using gcc 8""", 1)
+open(p, "w").write(s)
+PY
+# The build looks for its bundled Python at a fixed path; point it at the system one.
+RUN v=$(grep -oE 'set\(FSPYTHON_VERSION *"?[0-9.]+' CMakeLists.txt | grep -oE '[0-9.]+$' | head -1); \
+    v=${v:-3.12}; mkdir -p /opt/fspkgs/fspython/$v/bin \
+    && ln -sf /usr/bin/python3 /opt/fspkgs/fspython/$v/bin/python$v
+ENV FS_PACKAGES_DIR=/opt/fspkgs
+RUN mkdir build && cd build && cmake .. -DMINIMAL=OFF -DBUILD_GUIS=OFF \
+        -DINSTALL_PYTHON_DEPENDENCIES=OFF -DDISTRIBUTE_FSPYTHON=OFF \
+        -DCMAKE_INSTALL_PREFIX=/opt/freesurfer-src -DCMAKE_BUILD_TYPE=Release \
+        -DITK_DIR=/opt/itk/lib/cmake/ITK-5.4 -DWARNING_AS_ERROR=OFF -DINTEGRATE_SAMSEG=OFF \
+        -DGFORTRAN_LIBRARIES=/usr/lib/gcc/aarch64-linux-gnu/13/libgfortran.a \
+        -DBLAS_LIBRARIES=/usr/lib/aarch64-linux-gnu/blas/libblas.a \
+        -DLAPACK_LIBRARIES=/usr/lib/aarch64-linux-gnu/lapack/liblapack.a \
+        -DCMAKE_Fortran_FLAGS='-std=legacy -fallow-invalid-boz -fallow-argument-mismatch' \
+        -DCMAKE_C_FLAGS='-DARM64 -DPNG_ARM_NEON_OPT=0' \
+        -DCMAKE_CXX_FLAGS='-DARM64 -DPNG_ARM_NEON_OPT=0' > /src/fs-cmake.log 2>&1 \
+    || { tail -60 /src/fs-cmake.log; exit 1; }
+RUN cd build && (make -j"$(nproc)" > /src/fs-make.log 2>&1 \
+        || { grep -B2 -A6 "error" /src/fs-make.log | head -80; exit 1; })
+
+FROM build-arm64 AS fs-arm64-assemble
+COPY --from=fs-package /opt/freesurfer /opt/freesurfer
+COPY --chmod=0755 docker/assemble-arm64.sh /usr/local/bin/
+RUN assemble-arm64.sh /opt/freesurfer /src/freesurfer/build \
+ && sed -i "s/ubuntu24_x86_64-8.2.0-20260314-d932c45-medmcp-modified/ubuntu24_aarch64-8.2.0-20260314-d932c45-medmcp-modified/" \
+        /opt/freesurfer/bin/recon-all \
+ && grep -q "ubuntu24_aarch64-8.2.0-20260314-d932c45-medmcp-modified" /opt/freesurfer/bin/recon-all
+COPY --from=talairach /stage/ /opt/freesurfer/
+COPY docker/MEDMCP-MODIFIED.arm64.txt /opt/freesurfer/MEDMCP-MODIFIED.txt
+# recon-all prints this as its version and records it in every subject's logs.
+COPY docker/build-stamp.arm64.txt /opt/freesurfer/build-stamp.txt
+# Licences of what the arm64 programs link statically, beside FreeSurfer's own
+# third-party licences in docs/: ITK 5.4.0 (Apache-2.0) and reference BLAS/LAPACK.
+ADD --checksum=sha256:aac73b3148f6d1d7111dbca32099f68d26c644c6813ae1e4f05f6579aa2663fe \
+    https://raw.githubusercontent.com/InsightSoftwareConsortium/ITK/v5.4.0/LICENSE \
+    /opt/freesurfer/docs/license.itk.txt
+ADD --checksum=sha256:3bb4f458523ef5a5df0dedf461638cab5d4416f3b91837b2e81c4067ea628807 \
+    https://raw.githubusercontent.com/InsightSoftwareConsortium/ITK/v5.4.0/NOTICE \
+    /opt/freesurfer/docs/notice.itk.txt
+RUN cp /usr/share/doc/libblas-dev/copyright /opt/freesurfer/docs/license.blas.txt \
+ && cp /usr/share/doc/liblapack-dev/copyright /opt/freesurfer/docs/license.lapack.txt \
+ && chmod 0644 /opt/freesurfer/docs/license.itk.txt /opt/freesurfer/docs/notice.itk.txt
+
+# Only the assembled tree, without the build environment beneath it, so the stage the
+# image copies from (and CI caches) is the size of /opt/freesurfer.
+FROM scratch AS fs-arm64
+COPY --from=fs-arm64-assemble /opt/freesurfer /opt/freesurfer
+
+# The FreeSurfer tree for this architecture. CI builds this target first, with its own
+# registry cache (see .github/workflows/images.yml).
+FROM fs-${TARGETARCH} AS freesurfer
+
+# ── 4. The stack ────────────────────────────────────────────────────────────────
 FROM ${BASE_IMAGE} AS runtime
 
 # Stack metadata for one-click install/discovery (read via `docker inspect`).
-LABEL org.medmcp.stack='{"name": "medmcp-neuro-core", "gpu": true, "tool_timeout_sec": 7200, "skills_path": "/app/src/medmcp_neuro_core/skills"}'
+#
+# job: a core that runs stack jobs starts `medmcp-neuro-core-job call <tool>
+# <approved arguments>` in a container of its own for the calls that take about an
+# hour -- run_recon_all, and segment_brain with surfaces=True (FastSurfer's surface
+# pipeline) -- so they outlive the chat and the backend pool. The tools ask for a
+# job only for those calls; every other segment_brain call runs as before.
+# watch_sec: how long the core watches a new job for an immediate failure.
+LABEL org.medmcp.stack='{"name": "medmcp-neuro-core", "gpu": true, "tool_timeout_sec": 7200, "skills_path": "/app/src/medmcp_neuro_core/skills", "job": {"command": ["medmcp-neuro-core-job", "call"], "tools": ["run_recon_all", "segment_brain"], "watch_sec": 10}}'
+LABEL org.medmcp.freesurfer.version="8.2.0" \
+      org.medmcp.freesurfer.modified="true"
 
 # torch is pinned to the CUDA 12.8 (cu128) build (see pyproject), so it runs
 # natively on any host driver >= R570 (Turing through Blackwell) — no forward-compat
@@ -105,8 +308,11 @@ ARG FASTSURFER_VERSION=v2.5.4
 # shrinks the image instead of just shadowing files in an earlier layer.
 # seg-only: drop scikit-sparse — a recon_surf/surface-pipeline dep (needs SuiteSparse,
 # and the pinned version isn't published) that is never imported on the seg path.
-# Bake only the FastSurferVINN (asegdkt) checkpoint with --vinn: the seg-only path never
-# runs CerebNet/HypVINN/CC, so --all would download those for nothing. Offline at runtime.
+# Bake the FastSurferVINN (asegdkt) checkpoints (--vinn) and the corpus-callosum ones
+# (--cc): FastSurfer 2.5's surface pipeline (segment_brain surfaces=True) requires the
+# aseg with the corpus callosum that its CC module writes. CerebNet and HypVINN are
+# never run (segment_brain passes --no_cereb --no_hypothal), so --all would download
+# them for nothing. Offline at runtime.
 RUN --mount=type=cache,target=/root/.cache/uv \
     git clone --depth 1 --branch ${FASTSURFER_VERSION} \
         https://github.com/Deep-MI/FastSurfer.git /opt/FastSurfer \
@@ -115,10 +321,43 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra-index-url https://download.pytorch.org/whl/cu128 \
         --index-strategy unsafe-best-match -r /tmp/fs-seg-req.txt \
  && retry env PYTHONPATH=/opt/FastSurfer /app/.venv/bin/python \
-        /opt/FastSurfer/FastSurferCNN/download_checkpoints.py --vinn \
+        /opt/FastSurfer/FastSurferCNN/download_checkpoints.py --vinn --cc \
  && rm -rf /opt/FastSurfer/.git \
  && find /app/.venv -name '__pycache__' -type d -prune -exec rm -rf {} + \
  && find /app/.venv -name '*.a' -delete
+
+# ── FreeSurfer 8.2.0 (run_recon_all; segment_brain surfaces) ──────────────────
+# Late in the file so a FreeSurfer change never invalidates the long dependency
+# layers above. What its scripts and programs need at run time: tcsh/csh for the
+# scripts, bc, the OpenMP runtime, libtiff/libcrypt/libgfortran that the programs
+# link, PyYAML for the rca-config helpers (fspython is the system Python 3), and on
+# amd64 the system ITK 5.3 the official programs are linked against (the arm64 build
+# links ITK statically).
+ARG TARGETARCH
+RUN set -eux; \
+    pkgs="tcsh bc file libgomp1 libtiff6 libcrypt1 zlib1g libgfortran5 python3-yaml"; \
+    if [ "$TARGETARCH" = amd64 ]; then pkgs="$pkgs libinsighttoolkit5.3"; fi; \
+    apt-get update && apt-get install -y --no-install-recommends $pkgs \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=freesurfer /opt/freesurfer /opt/freesurfer
+COPY licenses/FreeSurfer-LICENSE.txt /opt/freesurfer/LICENSE-FreeSurfer.txt
+# FreeSurfer's environment is NOT set image-wide: FREESURFER_HOME and its bin/ on
+# PATH would change what FastSurfer, ANTs and the other tools find. The tools that
+# run FreeSurfer build it for their own child processes (tools/freesurfer/_env.py).
+# Here: every program must find its libraries, on this architecture, now rather than
+# in the middle of a one-hour run; recon-all must start; and the tree must never
+# carry a licence key.
+RUN set -eu; \
+    missing=$(find /opt/freesurfer -type f -perm -u+x -exec sh -c \
+        'for f; do file -b "$f" | grep -q "^ELF" && ldd "$f" 2>&1 | sed -n "s|^\t*\(.*not found\)|$f: \1|p"; done; true' _ {} +); \
+    if [ -n "$missing" ]; then echo "$missing" | head -40; exit 1; fi; \
+    for k in /opt/freesurfer/license.txt /opt/freesurfer/.license; do test ! -e "$k"; done; \
+    test -s /opt/freesurfer/MEDMCP-MODIFIED.txt; \
+    export FREESURFER_HOME=/opt/freesurfer FS_V8_XOPTS=0 PATH=/opt/freesurfer/bin:$PATH; \
+    for p in recon-all talairach_avi imgreg_4dfp t4imgs_4dfp mri_convert mris_make_surfaces \
+             mri_ca_register AntsN4BiasFieldCorrectionFs mri_mc mris_place_surface \
+             mris_remesh mri_cc mris_sample_parc mri_segstats; do command -v "$p" > /dev/null; done; \
+    recon-all -version
 
 # The source, and the project itself, last: everything above depends only on the
 # lock, so a code change now rebuilds seconds of work instead of the whole image.
@@ -165,4 +404,10 @@ ENV PATH=/opt/FastSurfer:/app/.venv/bin:$PATH \
     PYTHONPATH=/opt/FastSurfer \
     UV_NO_SYNC=1
 
-ENTRYPOINT ["tini", "--", "medmcp-neuro-core"]
+# tini reaps processes and forwards signals; stdio passes through. The MCP server
+# is the default COMMAND rather than part of the ENTRYPOINT so the same image runs
+# the background jobs too:
+#   docker run ... <image>                                       -> stdio MCP server
+#   docker run ... <image> medmcp-neuro-core-job call <tool> '<arguments>'
+ENTRYPOINT ["tini", "--"]
+CMD ["medmcp-neuro-core"]

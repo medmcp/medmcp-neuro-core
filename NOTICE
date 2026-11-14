@@ -28,7 +28,9 @@ underlying methods (see the "Citation" section of README.md).
     doi:10.1038/s41598-021-87564-6
 
   - FastSurfer (segment_brain) — deep-learning whole-brain segmentation
-    (FastSurferVINN, seg-only; no FreeSurfer license required).
+    (FastSurferVINN; no FreeSurfer license required), its corpus-callosum module
+    (checkpoints baked as well) and, with surfaces=True, its surface pipeline
+    (recon-surf), which runs the FreeSurfer programs below.
     Apache-2.0. https://github.com/Deep-MI/FastSurfer
     Cite: Henschel et al., "FastSurfer - A fast and accurate deep learning based
     neuroimaging pipeline", NeuroImage 219:117012 (2020).
@@ -63,6 +65,67 @@ underlying methods (see the "Citation" section of README.md).
     Remedios et al., "Self-supervised super-resolution for anisotropic MR images
     with and without slice gap", SASHIMI 2023, LNCS, pp. 118-128 (2023).
     doi:10.1007/978-3-031-44689-4_12
+
+------------------------------------------------------------------------------
+FreeSurfer (modified)
+------------------------------------------------------------------------------
+
+The published container image contains FreeSurfer and the components below, in
+/opt/freesurfer. Each remains under its own license. No FreeSurfer licence key is
+included: the tools use the user's own key from the workspace, by path, at run time.
+
+  - FreeSurfer 8.2.0 (run_recon_all, recon_all_status, freesurfer_stats, and the
+    FreeSurfer programs FastSurfer's surface pipeline runs for
+    segment_brain(surfaces=True)) -- cortical surface reconstruction, cortical
+    thickness and parcellation, subcortical segmentation (recon-all).
+    FreeSurfer Software License Agreement, Version 1.0 (February 2011),
+    The General Hospital Corporation (MGH). https://surfer.nmr.mgh.harvard.edu/
+    Source: https://github.com/freesurfer/freesurfer (tag v8.2.0, commit d932c45b)
+    The full licence text, prefaced as its Part B.1(b) requires, is in
+    licenses/FreeSurfer-LICENSE.txt and in the image at
+    /opt/freesurfer/LICENSE-FreeSurfer.txt. FreeSurfer's own copyright and
+    attribution notices are kept as distributed.
+
+    THIS IS A MODIFIED VERSION OF FREESURFER (Part B.1(d)). It is not the
+    original FreeSurfer distribution and is not endorsed by MGH or the FreeSurfer
+    developers:
+      * linux/amd64: the official freesurfer_ubuntu24-8.2.0_amd64.deb, with many
+        programs and data removed (GUIs, MATLAB-runtime tools, diffusion, FS-FAST,
+        bundled FSL/AFNI/DCMTK, the Python 3.8 environment, deep-learning models,
+        MNI/MINC tools, group-analysis atlases, subjects except fsaverage), and
+        talairach_avi with its 4dfp programs and atlases added, built by MedMCP
+        from the FreeSurfer source (the official 8.2.0 Ubuntu 24 package lacks
+        them).
+      * linux/arm64: the same, and in addition every program replaced by an
+        aarch64 build made by MedMCP from the FreeSurfer v8.2.0 source (x86-only
+        compiler flags removed, FreeSurfer's -DARM64 switch set, Fortran
+        subprojects built with GCC 13 legacy flags, a Martinos-internal post-build
+        step disabled, binaries stripped). FreeSurfer has no official Linux arm64
+        build.
+    Each image says so in /opt/freesurfer/MEDMCP-MODIFIED.txt, in the version
+    recon-all reports (ending in -medmcp-modified) and in its label
+    org.medmcp.freesurfer.modified=true. The build recipe is the Dockerfile's
+    FreeSurfer stages and docker/ in this repository.
+    Cite: Fischl B., "FreeSurfer", NeuroImage 62(2):774-781 (2012),
+    doi:10.1016/j.neuroimage.2012.01.021, and the method papers listed in the
+    "Citation" section of README.md.
+
+  - Third-party components distributed with FreeSurfer (VXL, NetCDF, libjpeg,
+    JSON, dcm2niix and others) -- their licence files are kept, as FreeSurfer
+    ships them, in /opt/freesurfer/docs/license.*.txt.
+
+  - ITK 5.4.0 (linux/arm64 image only; linked statically into the FreeSurfer
+    programs) -- Insight Toolkit. Apache-2.0.
+    https://github.com/InsightSoftwareConsortium/ITK
+    Licence and notice: /opt/freesurfer/docs/license.itk.txt, notice.itk.txt.
+
+  - Reference BLAS and LAPACK (linux/arm64 image only; linked statically into
+    the Fortran-based FreeSurfer programs) -- BSD-style licences, copied from
+    Ubuntu's packages to /opt/freesurfer/docs/license.blas.txt and
+    license.lapack.txt.
+
+  - ITK 5.3 runtime (linux/amd64 image only; the official FreeSurfer programs
+    link it) -- Ubuntu 24.04 package libinsighttoolkit5.3. Apache-2.0.
 
 ------------------------------------------------------------------------------
 Standard-space templates
