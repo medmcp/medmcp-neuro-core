@@ -17,12 +17,12 @@ seg-only) to label cortical and subcortical structures and produce a per-structu
 
 ## Which pipeline: segmentation, FastSurfer surfaces, or FreeSurfer recon-all?
 
-Decide before starting: two of the three take about an hour and need a licence.
+Decide before starting: two of the three run in the background for a while and need a licence.
 
 | Need | Use | Time | Licence |
 |---|---|---|---|
 | Volumes of subcortical structures or DKT cortical parcels, a label map | `segment_brain(...)` (FastSurfer segmentation) | about 1 min on a GPU | none |
-| Cortical **thickness**, surface area, surfaces, eTIV, quickly | `segment_brain(..., surfaces=True)` (FastSurfer segmentation + its surface pipeline, recon-surf) | segmentation now, then about **1 h** CPU in the background | FreeSurfer licence |
+| Cortical **thickness**, surface area, surfaces, eTIV, quickly | `segment_brain(..., surfaces=True)` (FastSurfer segmentation + its surface pipeline, recon-surf) | segmentation now, then about **15-30 min** CPU in the background | FreeSurfer licence |
 | The **reference FreeSurfer pipeline** (to match published FreeSurfer studies, or the user asks for FreeSurfer / recon-all) | `run_recon_all(t1_path, output_dir)` | about **1 h** per scan (8 threads), background | FreeSurfer licence |
 
 - Default to the plain segmentation for volumes. Offer the surface options only when
@@ -38,7 +38,7 @@ Decide before starting: two of the three take about an hour and need a licence.
   nothing and `segment_brain(surfaces=True)` still segments but returns
   `surfaces.status: licence_required`; relay the instructions and wait. Never ask the
   user to paste the licence into the chat, and never print or read its contents.
-- **Background jobs**: both hour-long runs return at once with a `job_id` and keep
+- **Background jobs**: both surface runs return at once with a `job_id` and keep
   running when the chat is idle or closed. Tell the user so; they can ask for progress
   at any time, also from a new chat: `recon_all_status(job_id)` (or the subject
   folder, or no argument to list every run). Do not poll in a loop. When it is
