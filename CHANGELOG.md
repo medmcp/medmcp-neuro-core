@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `register_to_template` / `coregister` with `synquick` failed with "SyNQuick does not exist" (antspyx
+  0.6.3 has no such name); it now runs ANTsPy's `antsRegistrationSyNQuick[s]`.
+- A failing ANTs subprocess now reports its own error message instead of only the exit code.
+
 ### Added
 
 - `lesion_load_by_atlas`: lesion volume per atlas region or white-matter tract (e.g. the corticospinal tract) by voxel counting. The atlas is warped into the lesion mask's space with ANTs (nearest-neighbour for label atlases, linear for probabilistic tract maps), so the mask is never resampled and volumes are native mm³ from its header. Tract atlases report thresholded (`probability_threshold`, default 0.25) and probability-weighted volumes and percentages; writes `<stem>_atlas-<atlas>_lesionload.csv` and returns the atlas attribution.
