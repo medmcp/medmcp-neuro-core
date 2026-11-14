@@ -4,6 +4,7 @@ from importlib.resources import files as _pkg_files
 
 from mcp.server.fastmcp import FastMCP
 
+from medmcp_neuro_core.tools.atlas import lesion_frequency_map, lesion_load_by_atlas, list_atlases
 from medmcp_neuro_core.tools.registration import apply_transform, coregister, register_to_template
 from medmcp_neuro_core.tools.segmentation import list_brain_segmentation_labels, segment_brain
 from medmcp_neuro_core.tools.skull_strip import skull_strip, warmup
@@ -19,6 +20,9 @@ mcp.add_tool(apply_transform)
 mcp.add_tool(segment_brain)
 mcp.add_tool(list_brain_segmentation_labels)
 mcp.add_tool(super_resolve)
+mcp.add_tool(list_atlases)
+mcp.add_tool(lesion_load_by_atlas)
+mcp.add_tool(lesion_frequency_map)
 
 
 def server_config() -> dict[str, object]:

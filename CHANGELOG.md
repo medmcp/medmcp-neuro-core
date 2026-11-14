@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `lesion_load_by_atlas`: lesion volume per atlas region or white-matter tract (e.g. the corticospinal tract) by voxel counting. The atlas is warped into the lesion mask's space with ANTs (nearest-neighbour for label atlases, linear for probabilistic tract maps), so the mask is never resampled and volumes are native mm³ from its header. Tract atlases report thresholded (`probability_threshold`, default 0.25) and probability-weighted volumes and percentages; writes `<stem>_atlas-<atlas>_lesionload.csv` and returns the atlas attribution.
+- `lesion_frequency_map`: cohort lesion-frequency map (voxel count / n) in MNI152NLin2009cAsym plus a nilearn figure over the template; masks in template space, or native masks with their `forward_transforms`.
+- `list_atlases` and the bundled atlases, baked into the image from pinned, SHA-256-checked sources with attribution: Pandora TractSeg set (CC BY 4.0), HCP1065 (CC BY-SA 4.0, unmodified), Schaefer 2018 100/200/400 parcels (MIT). New `atlas` skill.
+- `nilearn[plotting]` dependency (BSD-3) for the frequency-map figure.
+- `NOTICE` is now copied into the container image.
 - `segment_brain` writes `<stem>_labels.csv` (`label,structure`) beside the label map, so the workspace viewer names the structures in its legend.
 - `super_resolve` tool: through-plane super-resolution of anisotropic, thick-slice MRI to isotropic, with `method="eclare"` (ECLARE 1.0.1, default) or `method="smore"` (SMORE v4.0.5). Both are self-supervised (a network is trained on each image, so there are no weights to bake) and run as their upstream CLIs in a subprocess. They need a CUDA GPU: `device="auto"` refuses to fall back to CPU, and there is no MPS. (Near-)isotropic input is skipped with a warning. The result reports input/output voxel sizes and shapes, the device, and the runtime. Output: `{stem}_eclare.nii.gz` / `{stem}_smore.nii.gz`.
 - `super-resolution` SKILL.md: when super-resolution applies, ECLARE vs SMORE, runtime expectations, slice thickness, and output naming.

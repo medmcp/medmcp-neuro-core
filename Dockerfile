@@ -125,6 +125,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # --inexact because FastSurfer's requirements were pip-installed into this venv
 # and are deliberately absent from uv.lock; a plain sync would prune them.
 COPY src ./src
+# Third-party attributions (bundled weights, templates, atlases) travel with the image.
+COPY NOTICE ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --inexact
 
@@ -147,6 +149,15 @@ RUN /app/.venv/bin/python -c \
 # from the code that reads them.
 RUN retry /app/.venv/bin/python -c \
     "from medmcp_neuro_core.tools._template import get_mni152_1mm; get_mni152_1mm(skull_stripped=False); get_mni152_1mm(skull_stripped=True)"
+
+# Bake the lesion-load atlases (lesion_load_by_atlas) for --network none, through the
+# same resolver the tool reads them with. Only atlases cleared for redistribution are
+# registered (Pandora CC BY 4.0, HCP1065 CC BY-SA 4.0, Schaefer 2018 MIT); each is
+# fetched from a pinned URL and SHA-256-checked, and lands with its ATTRIBUTION.txt and
+# upstream licence file in /root/.medmcp_neuro_core/atlases/<name>/. Preparing Pandora
+# splits its 4-D volume and briefly needs ~2.5 GB RAM.
+RUN retry /app/.venv/bin/python -c \
+    "from medmcp_neuro_core.tools._atlas import prepare_all; prepare_all()"
 
 ENV PATH=/opt/FastSurfer:/app/.venv/bin:$PATH \
     FASTSURFER_HOME=/opt/FastSurfer \
