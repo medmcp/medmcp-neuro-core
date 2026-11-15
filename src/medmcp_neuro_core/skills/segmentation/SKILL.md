@@ -34,10 +34,17 @@ Decide before starting: two of the three run in the background for a while and n
   licence file. It is free: register at
   https://surfer.nmr.mgh.harvard.edu/registration.html and save the emailed
   `license.txt` in the workspace as `.medmcp/licenses/freesurfer.txt` (or pass
-  `license_path` to a file inside the workspace). Without it, `run_recon_all` starts
-  nothing and `segment_brain(surfaces=True)` still segments but returns
-  `surfaces.status: licence_required`; relay the instructions and wait. Never ask the
-  user to paste the licence into the chat, and never print or read its contents.
+  `license_path` to a file inside the workspace). The tools check the file once per
+  call (exists, readable, shaped like a licence). Without a usable one,
+  `run_recon_all` starts nothing and `segment_brain(surfaces=True)` still segments;
+  `status` / `surfaces.status` is `licence_required` (no file) or `licence_invalid`
+  (unreadable, not a licence, outside the workspace) with the exact problem. Relay it
+  and wait for the user to fix the file.
+- **Hands off the licence file.** It is the user's personal key. Pass its path as it
+  is. Never copy, move, rename, `chmod`, `cat`, open or print it, never make a copy
+  elsewhere to retry with, and never ask the user to paste it into the chat. Only a
+  `licence_required` / `licence_invalid` status means a licence problem; anything
+  else is not.
 - **Background jobs**: both surface runs return at once with a `job_id` and keep
   running when the chat is idle or closed. Tell the user so; they can ask for progress
   at any time, also from a new chat: `recon_all_status(job_id)` (or the subject
@@ -46,8 +53,16 @@ Decide before starting: two of the three run in the background for a while and n
   white-surface area, eTIV and the subcortical volumes, writes CSVs (volumes;
   thickness/area/volume per region; global measures) and a QC image. For a FastSurfer
   run the subject folder is `surfaces.subject_dir` (`<output_dir>/fastsurfer/<scan>`).
-- MedMCP runs only a few background jobs at a time and does not queue them: if a start
-  is refused for that reason, say so and start the next scan when one finishes.
+- **Busy job slot is not a licence problem.** MedMCP runs one background job at a time
+  by default and does not queue. When this stack's own run already holds the slot, the
+  result says `waiting_for_job_slot` (`surfaces.status` for `segment_brain`, where the
+  segmentation is still done) with `running_job` and the `retry_call` to make later.
+  If instead the call fails with *MedMCP did not start the background job: … already
+  running*, the slot is busy too (maybe a job of another stack); for
+  `segment_brain` the segmentation files are already in `output_dir`. In both cases:
+  tell the user a background job is running, offer `recon_all_status`, and make the
+  same call again once it is done. Do not touch the licence, do not change other
+  arguments, do not retry in a loop.
 - recon-all runs FreeSurfer's classic stream (`recon-all -all -no-v8`); FreeSurfer 8's
   Synth* stream is not in the image. A subject folder is never overwritten: a second
   run needs a new `subject_id` / `output_dir`, and an interrupted run is started again,
