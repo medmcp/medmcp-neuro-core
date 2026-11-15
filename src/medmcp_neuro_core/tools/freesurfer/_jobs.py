@@ -188,6 +188,50 @@ def all_states(reg: Path) -> list[JsonDict]:
     return found
 
 
+# MedMCP's own limit on background jobs per machine (``MEDMCP_MAX_JOBS`` in the core,
+# default 1). A stack container normally does not see the core's environment, so
+# the core's default is assumed unless the variable is visible here.
+MAX_JOBS_ENV = "MEDMCP_MAX_JOBS"
+
+
+def max_jobs() -> int:
+    """How many background jobs MedMCP runs at a time (the core's default: one)."""
+    try:
+        return max(1, int(os.environ.get(MAX_JOBS_ENV, "1").strip() or "1"))
+    except ValueError:
+        return 1
+
+
+def slot_holder(reg: Path, exclude: str | None = None) -> JsonDict | None:
+    """The running job that fills MedMCP's job slot, or None when a job can start.
+
+    Looks at this stack's job records only (a job of another stack is invisible
+    here; MedMCP itself refuses that case, see the tools' descriptions). Returns the
+    newest active record when at least ``max_jobs()`` jobs other than *exclude* run.
+    """
+    active = [
+        s for s in all_states(reg) if s.get("job_id") != exclude and effective_status(s) in ACTIVE
+    ]
+    return active[0] if len(active) >= max_jobs() else None
+
+
+def describe_job(state: JsonDict) -> JsonDict:
+    """What the user needs to know about a running job (no request details)."""
+    from medmcp_neuro_core.tools.freesurfer.surfaces import KIND
+
+    return {
+        "job_id": state.get("job_id"),
+        "pipeline": (
+            "FastSurfer surfaces (recon-surf)"
+            if state.get("kind") == KIND
+            else "FreeSurfer recon-all"
+        ),
+        "subject_id": state.get("subject_id"),
+        "subject_dir": state.get("subject_dir"),
+        "status": effective_status(state),
+    }
+
+
 # ── FreeSurfer's own files ──────────────────────────────────────────────────────
 
 

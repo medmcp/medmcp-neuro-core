@@ -14,11 +14,13 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
+from pydantic import validate_call
 
 from medmcp_neuro_core.tools.freesurfer import _jobs
 from medmcp_neuro_core.tools.freesurfer._env import freesurfer_env
 from medmcp_neuro_core.tools.freesurfer.recon import recon_all_status
 from medmcp_neuro_core.tools.segmentation import segment_brain
+from tests.conftest import write_fake_licence, write_running_job
 
 FAKE_FASTSURFER = """#!/usr/bin/env bash
 # Stand-in for run_fastsurfer.sh: --sid <s> --sd <sd> (--seg_only | --surf_only) ...
@@ -128,6 +130,105 @@ def test_core_job_request(
     assert "Left-Thalamus" in Path(result["volumes_path"]).read_text()
     # Only the segmentation ran: recon-surf is the job's.
     assert (subject / "calls.txt").read_text().split().count("surf") == 0
+
+
+def test_busy_job_slot_waits_and_is_not_a_licence_problem(
+    workspace: Path, t1: Path, fake_fastsurfer: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another job holds MedMCP's slot: segmentation done, surfaces waiting, no request.
+
+    The rehearsal case: a recon-all job was running and the model took the core's
+    refusal for a licence problem. Now the tool does not ask for a job it cannot get,
+    says why in licence-free words, and gives the exact call to make later.
+    """
+    monkeypatch.setenv("MEDMCP_JOBS", "1")
+    lic = write_fake_licence(workspace / "keys" / "license.txt")
+    lic.chmod(0o600)
+    before = (lic.read_bytes(), lic.stat().st_mode)
+    busy = write_running_job(workspace)
+    result = segment_brain(
+        t1, output_dir=workspace / "out", device="cpu", surfaces=True, license_path=str(lic)
+    )
+    surfaces = result["surfaces"]
+    assert surfaces is not None and surfaces["status"] == "waiting_for_job_slot"
+    assert result["medmcp_job"] is None
+    assert surfaces["licence_ok"] is True
+    assert surfaces["running_job"]["job_id"] == busy
+    assert surfaces["running_job"]["pipeline"] == "FreeSurfer recon-all"
+    assert "NOT a licence problem" in surfaces["note"] and busy in surfaces["note"]
+    assert surfaces["retry_call"] == {
+        "tool": "segment_brain",
+        "arguments": {
+            "input_path": str(t1),
+            "output_dir": str(workspace / "out"),
+            "device": "cpu",
+            "threads": 4,
+            "force": False,
+            "surfaces": True,
+            "license_path": str(lic),
+        },
+    }
+    assert "waiting_for_job_slot" in result["_render"]
+    assert "NOT a licence problem" in result["_render"]
+    # The segmentation is there now, in the subject folder the later job builds on.
+    assert Path(result["seg_path"]).exists() and Path(result["volumes_path"]).exists()
+    assert (_subject(workspace) / "mri" / "aseg.auto.mgz").exists()
+    # The licence was not touched.
+    assert (lic.read_bytes(), lic.stat().st_mode) == before
+    assert sorted(p.name for p in lic.parent.iterdir()) == ["license.txt"]
+
+    # Once the slot is free, the same call (retry_call) asks for the job.
+    jdir = workspace / ".medmcp" / "freesurfer" / "jobs" / busy
+    state = _jobs.read_state(jdir)
+    assert state is not None
+    _jobs.write_state(jdir, {**state, "status": "done"})
+    # As FastMCP would call it: the JSON arguments, coerced by pydantic.
+    again = validate_call(segment_brain)(**surfaces["retry_call"]["arguments"])
+    assert again["medmcp_job"] == {"name": "FastSurfer surfaces sub-01_T1w"}
+    assert again["surfaces"] is not None and again["surfaces"]["status"] == "requested"
+
+
+def test_higher_job_limit_lets_the_request_through(
+    workspace: Path,
+    licence: Path,
+    t1: Path,
+    fake_fastsurfer: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Where MEDMCP_MAX_JOBS is visible and allows more, a running job does not block."""
+    monkeypatch.setenv("MEDMCP_JOBS", "1")
+    monkeypatch.setenv("MEDMCP_MAX_JOBS", "2")
+    write_running_job(workspace)
+    result = segment_brain(t1, output_dir=workspace / "out", device="cpu", surfaces=True)
+    assert result["medmcp_job"] == {"name": "FastSurfer surfaces sub-01_T1w"}
+
+
+def test_render_warns_about_the_cores_refusal(
+    workspace: Path, licence: Path, t1: Path, fake_fastsurfer: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The request's render rules already say a refused start is not a licence problem."""
+    monkeypatch.setenv("MEDMCP_JOBS", "1")
+    result = segment_brain(t1, output_dir=workspace / "out", device="cpu", surfaces=True)
+    assert "MedMCP did not start the background job" in result["_render"]
+    assert "NOT a licence problem" in result["_render"]
+
+
+def test_invalid_licence_is_reported_as_licence_invalid(
+    workspace: Path, t1: Path, fake_fastsurfer: Path
+) -> None:
+    """A malformed licence: segmentation runs, surfaces say licence_invalid, no content shown."""
+    bad = workspace / "keys" / "license.txt"
+    bad.parent.mkdir()
+    bad.write_text("not-a-licence-SECRETWORD\n")
+    result = segment_brain(
+        t1, output_dir=workspace / "out", device="cpu", surfaces=True, license_path=str(bad)
+    )
+    surfaces = result["surfaces"]
+    assert surfaces is not None and surfaces["status"] == "licence_invalid"
+    assert "structure of a FreeSurfer licence" in surfaces["note"]
+    assert "SECRETWORD" not in json.dumps(result)
+    assert Path(result["seg_path"]).exists()
+    assert result["medmcp_job"] is None
 
 
 def test_job_runs_recon_surf_with_freesurfer_env(
