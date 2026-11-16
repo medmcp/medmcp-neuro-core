@@ -38,13 +38,16 @@ from medmcp_neuro_core.tools._neuro import (
 )
 from medmcp_neuro_core.tools.freesurfer import _jobs
 from medmcp_neuro_core.tools.freesurfer import surfaces as _surf
-from medmcp_neuro_core.tools.freesurfer._license import LicenseMissingError
+from medmcp_neuro_core.tools.freesurfer._license import LicenseError
 from medmcp_neuro_core.tools.freesurfer.recon import (
     JOB_NOTE,
     RESEARCH_NOTE,
     SESSION_WARNING,
+    SLOT_REFUSAL_HINT,
+    WAITING,
     core_runs_jobs,
     launch_job,
+    slot_busy_note,
     watch_startup,
 )
 
@@ -436,7 +439,7 @@ def prepare_segment_surfaces(
     Raises:
         ValueError: ``surfaces`` is not True (only that call runs as a job), or the
             image or a path is refused.
-        LicenseMissingError: no FreeSurfer licence file.
+        LicenseError: no usable FreeSurfer licence file.
         FileExistsError: the surface pipeline already ran in this subject folder.
     """
     if not surfaces:
@@ -448,13 +451,27 @@ def prepare_segment_surfaces(
     return request
 
 
-def _surfaces_licence_required(message: str) -> dict[str, Any]:
+def _surfaces_licence_problem(exc: LicenseError) -> dict[str, Any]:
     return {
-        "status": "licence_required",
+        "status": exc.status,
         "job_id": None,
         "subject_dir": None,
-        "error": message,
-        "note": message,
+        "error": str(exc),
+        "note": str(exc),
+    }
+
+
+def _surfaces_waiting(request: dict[str, Any], holder: dict[str, Any]) -> dict[str, Any]:
+    """The surface run did not start: MedMCP's job slot is held by *holder*."""
+    return {
+        "status": WAITING,
+        "job_id": None,
+        "subject_dir": str(request["subject_dir"]),
+        "error": None,
+        "licence_ok": True,
+        "note": slot_busy_note(holder, "FastSurfer's surface pipeline"),
+        "running_job": holder,
+        "retry_call": {"tool": "segment_brain", "arguments": _surf.job_arguments(request)},
     }
 
 
@@ -469,6 +486,9 @@ def _start_surfaces(request: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
         "error": None,
     }
     if core_runs_jobs():
+        holder = _jobs.slot_holder(Path(str(request["registry"])), exclude=info["job_id"])
+        if holder is not None:
+            return _surfaces_waiting(request, _jobs.describe_job(holder)), None
         info["status"] = "requested"
         info["note"] = f"{JOB_NOTE} {_surf.TIME_NOTE}"
         return info, {"name": f"FastSurfer surfaces {request['subject_id']}"}
@@ -504,8 +524,19 @@ def segment_brain(
     15 to 30 minutes; follow it with recon_all_status and read the results with
     freesurfer_stats. That part runs FreeSurfer's programs and needs the user's
     FreeSurfer licence (free registration), by default at
-    ``<workspace>/.medmcp/licenses/freesurfer.txt``; without it the segmentation still
-    runs and ``surfaces.status`` is ``licence_required`` with instructions.
+    ``<workspace>/.medmcp/licenses/freesurfer.txt``. The tool checks it (exists,
+    readable, shaped like a licence); when it cannot be used the segmentation still
+    runs and ``surfaces.status`` is ``licence_required`` or ``licence_invalid`` with
+    what to do. Pass the licence path as it is: never copy, move, chmod, open or print
+    the file.
+
+    MedMCP runs one background job at a time by default. When this stack's own job
+    already fills that slot, the segmentation still runs and ``surfaces.status`` is
+    ``waiting_for_job_slot`` with the running job and the call to make later. If
+    MedMCP itself answers "MedMCP did not start the background job: ... already
+    running", the slot is busy too (maybe with another stack's job) and the
+    segmentation outputs are already written to ``output_dir``: that is NOT a
+    licence problem; wait for the job to finish and make the same call again.
 
     The input is sanity-checked first (see _check_input): a filename that names a
     non-T1w contrast is flagged as a warning, and strongly anisotropic / thick-slice
@@ -519,11 +550,11 @@ def segment_brain(
         threads: CPU threads for pre/post-processing. Default 4.
         force: Run even when the input resolution is outside FastSurfer's supported
             range (otherwise such inputs raise ValueError). Default False.
-        surfaces: Also run FastSurfer's surface pipeline (licence needed, about an
-            hour, background job). Results go to ``<output_dir>/fastsurfer/<subject>/``.
+        surfaces: Also run FastSurfer's surface pipeline (licence needed, 15 to 30
+            minutes, background job). Results go to ``<output_dir>/fastsurfer/<subject>/``.
             Default False.
         license_path: The FreeSurfer licence file for ``surfaces=True``, if not at the
-            default location. Must be inside the workspace.
+            default location. Must be inside the workspace; pass the path as it is.
 
     Returns:
         SegmentResult with paths to the segmentation label map and volume CSV, plus
@@ -549,9 +580,9 @@ def segment_brain(
             surf_request = _surf.prepare_surfaces(
                 input_path, output_dir, device, threads, force, license_path
             )
-        except LicenseMissingError as exc:
+        except LicenseError as exc:
             # The segmentation needs no licence: it still runs.
-            surf_info = _surfaces_licence_required(str(exc))
+            surf_info = _surfaces_licence_problem(exc)
     if surf_request is not None:
         jdir = _jobs.job_dir(Path(str(surf_request["registry"])), str(surf_request["job_id"]))
         current = _jobs.read_state(jdir)
@@ -707,13 +738,23 @@ def _segment_into_subject(
 
 _SURFACES_RENDER = (
     "\nSURFACES (only if 'surfaces' is not null):\n"
-    "If surfaces.status is licence_required: say the segmentation above is done, but the "
-    "surface pipeline was NOT started because FreeSurfer needs the user's licence file; "
-    "tell the user surfaces.note in plain words. Never ask for the licence's contents.\n"
+    "If surfaces.status is licence_required or licence_invalid: say the segmentation above "
+    "is done, but the surface pipeline was NOT started because of the user's FreeSurfer "
+    "licence file; tell the user surfaces.note in plain words. Never ask for the "
+    "licence's contents, and never copy, move, chmod, open or print the licence file "
+    "yourself or retry with a copy of it.\n"
+    "If surfaces.status is waiting_for_job_slot: say the segmentation above is done, but "
+    "the surface pipeline was NOT started because another background job "
+    "(surfaces.running_job) is still running; this is NOT a licence problem, the licence "
+    "file is fine and must not be touched. Tell the user surfaces.note, and offer "
+    "recon_all_status(surfaces.running_job.job_id) and to make surfaces.retry_call again "
+    "once that job is done. Do not retry now.\n"
     "If medmcp_job is present: only if it says started: true was the surface pipeline "
     "started; then say so, give surfaces.job_id and surfaces.subject_dir, and say it takes "
     "15 to 30 minutes and keeps running in the background (surfaces.note). If medmcp_job does "
-    "not say started: true, the surfaces were NOT started; say so plainly.\n"
+    "not say started: true, the surfaces were NOT started; say so plainly. "
+    + SLOT_REFUSAL_HINT
+    + "\n"
     "Otherwise give surfaces.status and surfaces.note (if failed, surfaces.error).\n"
     "NEXT ACTION for surfaces: the user can ask for progress at any time "
     "(recon_all_status with surfaces.job_id), also from a new chat; when it is done, "

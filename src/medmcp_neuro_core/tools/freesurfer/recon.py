@@ -33,6 +33,9 @@ from medmcp_neuro_core.tools.freesurfer._inputs import (
     default_subject_id,
 )
 from medmcp_neuro_core.tools.freesurfer._license import (
+    HANDS_OFF,
+    LicenseError,
+    LicenseInvalidError,
     LicenseMissingError,
     find_license,
     instructions,
@@ -73,6 +76,29 @@ SESSION_WARNING = (
     "interrupted run must be started again in a new folder."
 )
 
+# What the model must know before a job is requested: MedMCP refuses a second job
+# with an error that replaces the whole tool result, and the stack never sees it.
+SLOT_REFUSAL_HINT = (
+    "If MedMCP answers 'MedMCP did not start the background job: ... already "
+    "running', its background-job slot is busy (one job at a time by default, possibly "
+    "a job of another tool stack). That is NOT a licence problem and nothing is wrong "
+    "with the licence file: wait until the running job is done (recon_all_status lists "
+    "this stack's runs), then make the same call again. " + HANDS_OFF
+)
+WAITING = "waiting_for_job_slot"
+
+
+def slot_busy_note(holder: JsonDict, what: str) -> str:
+    """Why *what* did not start: the job slot is taken by *holder* (a described job)."""
+    return (
+        f"{what} was NOT started: MedMCP runs at most {_jobs.max_jobs()} background job"
+        f"{'s' if _jobs.max_jobs() != 1 else ''} at a time, and {holder['pipeline']} for "
+        f"{holder['subject_id']} (job {holder['job_id']}) is still running. This is NOT a "
+        "licence problem: the licence file is fine and must not be touched. Nothing was "
+        "queued; make the same call again when that job is done (recon_all_status "
+        f"{holder['job_id']} shows its progress)."
+    )
+
 
 def core_runs_jobs() -> bool:
     """Whether the core offered to run the job in a container of its own."""
@@ -103,6 +129,7 @@ def prepare_recon_all(
 
     Raises:
         LicenseMissingError: no licence file (the message says how to get one).
+        LicenseInvalidError: the licence file is unusable (the message says why).
         FileNotFoundError: the T1 image does not exist.
         FileExistsError: the subject folder already exists.
         ValueError: a path outside the workspace, a bad subject id, an unsupported
@@ -194,14 +221,20 @@ class RunReconAllResult(TypedDict):
     error: str | None
     note: str
     _render: str
+    # Present when the job slot is busy (status waiting_for_job_slot): the job that
+    # holds it, and the call to make again once it is done.
+    running_job: NotRequired[dict[str, Any]]
+    retry_call: NotRequired[dict[str, Any]]
     # Present when recon-all is handed to the core as a background job: the request
     # on the way out, replaced by the core with what it did about it.
     medmcp_job: NotRequired[dict[str, Any]]
 
 
-def _licence_required(message: str) -> RunReconAllResult:
+def _licence_problem(exc: LicenseError) -> RunReconAllResult:
+    message = str(exc)
+    missing = isinstance(exc, LicenseMissingError)
     return {
-        "status": "licence_required",
+        "status": exc.status,
         "job_id": None,
         "subject_id": None,
         "subject_dir": None,
@@ -213,12 +246,48 @@ def _licence_required(message: str) -> RunReconAllResult:
         "note": message,
         "_render": (
             "DISPLAY RULES:\n"
-            "recon-all was NOT started: FreeSurfer needs the user's licence file. Tell the "
-            "user exactly this, in plain words: " + message + "\n"
-            "Do not ask the user to paste the licence into the chat, and never print, "
-            "copy or read its contents.\n"
-            "NEXT ACTION: Wait for the user to place the file, then call run_recon_all "
+            "recon-all was NOT started: "
+            + (
+                "FreeSurfer needs the user's licence file. "
+                if missing
+                else "the FreeSurfer licence file cannot be used. "
+            )
+            + "Tell the user exactly this, in plain words: "
+            + message
+            + "\n"
+            "Do not ask the user to paste the licence into the chat. Never copy, move, "
+            "chmod, open or print the licence file yourself, and never retry with a copy "
+            "of it.\n"
+            "NEXT ACTION: Wait for the user to fix the file, then call run_recon_all "
             "again with the same arguments."
+        ),
+    }
+
+
+def _waiting_for_slot(request: JsonDict, holder: JsonDict) -> RunReconAllResult:
+    note = slot_busy_note(holder, "recon-all")
+    return {
+        "status": WAITING,
+        "job_id": None,
+        "subject_id": str(request["subject_id"]),
+        "subject_dir": str(request["subject_dir"]),
+        "command": None,
+        "threads": int(request["threads"]),
+        "warnings": list(request["warnings"]),
+        "log": None,
+        "error": None,
+        "note": note,
+        "running_job": holder,
+        "retry_call": {"tool": "run_recon_all", "arguments": job_arguments(request)},
+        "_render": (
+            "DISPLAY RULES:\n"
+            "recon-all was NOT started because another background job is running; it is "
+            "NOT a licence problem. Tell the user this note in plain words: " + note + "\n"
+            "Do not touch the licence file (no copy, move, chmod or reading) and do not "
+            "retry with other arguments.\n"
+            "NEXT ACTION: Offer to check the running job (recon_all_status with "
+            "running_job.job_id) and to make retry_call again once it is done. Do not poll "
+            "in a loop unless the user asks you to wait."
         ),
     }
 
@@ -284,8 +353,17 @@ def run_recon_all(
     with freesurfer_stats when the run is done.
 
     Needs the user's FreeSurfer licence file (free registration), by default at
-    ``<workspace>/.medmcp/licenses/freesurfer.txt``. Without it nothing is started
-    and the result says how to get one.
+    ``<workspace>/.medmcp/licenses/freesurfer.txt``. The tool checks it (exists,
+    readable, shaped like a licence); when it cannot be used nothing is started and
+    ``status`` is ``licence_required`` or ``licence_invalid`` with what to do. Pass
+    the licence path as it is: never copy, move, chmod, open or print the file.
+
+    MedMCP runs one background job at a time by default. When this stack's own job
+    already fills that slot, nothing is started and ``status`` is
+    ``waiting_for_job_slot`` with the running job and the call to make later. If
+    MedMCP itself answers "MedMCP did not start the background job: ... already
+    running", the slot is busy too (maybe with another stack's job): that is NOT a
+    licence problem; wait for the job to finish and make the same call again.
 
     Args:
         t1_path: The T1-weighted scan, a 3D NIfTI (.nii/.nii.gz) or .mgz file in
@@ -295,7 +373,7 @@ def run_recon_all(
         subject_id: Name of the subject folder to create. Default: from the T1 file
             name. Must not exist yet.
         license_path: The FreeSurfer licence file, if not at the default location.
-            Must be inside the workspace.
+            Must be inside the workspace; pass the path as it is.
         threads: CPU threads for recon-all (default 8).
         pipeline: ``"classic"`` (the only one available: recon-all -all -no-v8).
         force: Run even on thick-slice or strongly anisotropic scans, which the input
@@ -303,7 +381,8 @@ def run_recon_all(
 
     Returns:
         ``status`` (``requested`` when MedMCP runs the job, else ``starting`` /
-        ``running`` / ``failed``, or ``licence_required``), ``job_id``,
+        ``running`` / ``failed``; or ``licence_required`` / ``licence_invalid`` /
+        ``waiting_for_job_slot``, when nothing was started), ``job_id``,
         ``subject_dir``, the ``command``, input ``warnings`` and a ``note`` on where
         and how long the job runs.
     """
@@ -311,8 +390,8 @@ def run_recon_all(
         request = prepare_recon_all(
             t1_path, output_dir, subject_id, license_path, threads, pipeline, force
         )
-    except LicenseMissingError as exc:
-        return dict(_licence_required(str(exc)))
+    except LicenseError as exc:
+        return dict(_licence_problem(exc))
 
     reg = Path(str(request["registry"]))
     jdir = _jobs.job_dir(reg, str(request["job_id"]))
@@ -322,9 +401,13 @@ def run_recon_all(
             f"recon-all for {request['subject_id']} is already running (job "
             f"{request['job_id']}); use recon_all_status to follow it."
         )
+    as_job = core_runs_jobs()
+    if as_job:
+        holder = _jobs.slot_holder(reg, exclude=str(request["job_id"]))
+        if holder is not None:
+            return dict(_waiting_for_slot(request, _jobs.describe_job(holder)))
     Path(str(request["subjects_dir"])).mkdir(parents=True, exist_ok=True)
 
-    as_job = core_runs_jobs()
     if as_job:
         seen: JsonDict = {"status": "requested", "error": None}
     else:
@@ -343,7 +426,7 @@ def run_recon_all(
             "was recon-all started. Then say so, say it takes about an hour, and repeat "
             "this note verbatim: " + JOB_NOTE + "\n"
             "If medmcp_job does not say started: true, recon-all was NOT started; say that "
-            "plainly and do not claim it is running.\n"
+            "plainly and do not claim it is running.\n" + SLOT_REFUSAL_HINT + "\n"
             "Mention once: " + RESEARCH_NOTE + "\n"
             "NEXT ACTION: Tell the user they can ask for progress at any time "
             "(recon_all_status with the job_id or subject folder), also from a new chat, "
@@ -552,6 +635,8 @@ def recon_all_status(job_or_subject: str | None = None) -> JsonDict:
 
 
 __all__ = [
+    "LicenseError",
+    "LicenseInvalidError",
     "LicenseMissingError",
     "instructions",
     "prepare_recon_all",

@@ -5,6 +5,8 @@ FreeSurfer's exact file format, so the parsers are tested against the format and
 the tests carry no third-party data.
 """
 
+import socket
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -78,16 +80,51 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]
     yield ws
 
 
+# A made-up licence in FreeSurfer's license.txt layout (email, number, key, key).
+# Not a real key: tests never touch a real licence file.
+FAKE_LICENCE = "synthetic.user@example.org\n00000\n *FAKEKEYNOTREAL\n FSFAKEFAKEFAKE\n"
+
+
+def write_fake_licence(path: Path) -> Path:
+    """Write the synthetic licence to *path* (creating its folder)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(FAKE_LICENCE)
+    return path
+
+
 @pytest.fixture
 def licence(workspace: Path) -> Path:
-    """A placeholder licence file at the default location (not a real key)."""
-    path = workspace / ".medmcp" / "licenses" / "freesurfer.txt"
-    path.parent.mkdir(parents=True)
-    path.write_text("placeholder-not-a-licence\n")
-    return path
+    """A synthetic licence file at the default location (not a real key)."""
+    return write_fake_licence(workspace / ".medmcp" / "licenses" / "freesurfer.txt")
 
 
 @pytest.fixture
 def t1(workspace: Path) -> Path:
     """A 1 mm isotropic 3D T1 in the workspace."""
     return write_fs_nifti(workspace / "sub-01_T1w.nii.gz", (64, 64, 48), (1.0, 1.0, 1.0))
+
+
+def write_running_job(workspace: Path, subject_id: str = "busy01", kind: str = "recon-all") -> str:
+    """Record a job of this stack that is running elsewhere (fresh heartbeat).
+
+    Returns its job id. Nothing runs: only the record a real job keeps in the workspace.
+    """
+    from medmcp_neuro_core.tools.freesurfer import _jobs
+
+    subject = workspace / "subjects" / subject_id
+    job_id = _jobs.job_id_for(subject)
+    _jobs.write_state(
+        workspace / ".medmcp" / "freesurfer" / "jobs" / job_id,
+        {
+            "job_id": job_id,
+            "kind": kind,
+            "status": "running",
+            "hostname": socket.gethostname() + "-job-container",
+            "pid": 1,
+            "started_at": time.time() - 600,
+            "heartbeat_at": time.time(),
+            "subject_id": subject_id,
+            "subject_dir": str(subject),
+        },
+    )
+    return job_id

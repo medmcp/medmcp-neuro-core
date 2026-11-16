@@ -33,7 +33,8 @@ def freesurfer_env(
 
     Args:
         base: The environment to extend (normally ``os.environ``).
-        license_path: The user's licence file; FreeSurfer reads it, this code never does.
+        license_path: The user's licence file (checked by ``_license``); only its path
+            goes into the environment.
         subjects_dir: ``SUBJECTS_DIR`` for the run.
         threads: OpenMP threads.
     """

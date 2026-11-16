@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `register_to_template` / `coregister` with `synquick` failed with "SyNQuick does not exist" (antspyx
   0.6.3 has no such name); it now runs ANTsPy's `antsRegistrationSyNQuick[s]`.
 - A failing ANTs subprocess now reports its own error message instead of only the exit code.
+- `segment_brain(surfaces=True)` and `run_recon_all` while another background job is running: the segmentation is still returned and the surfaces report that they wait for a free job slot, with the call to retry. Before, MedMCP's refusal replaced the whole result and was taken for a licence problem.
+- FreeSurfer licence: every tool taking `license_path` checks the file once and says exactly what is wrong (missing, unreadable, not a licence, outside the workspace), never showing its content. Before, a licence outside the workspace failed the whole `segment_brain` call.
 
 ### Added
 

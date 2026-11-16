@@ -98,8 +98,13 @@ written against FreeSurfer 7.4.1; the surface pipeline runs it on 8.2.0 with
 **Licence key.** FreeSurfer's programs need the user's own licence file (free
 registration at <https://surfer.nmr.mgh.harvard.edu/registration.html>), saved in the
 workspace as `.medmcp/licenses/freesurfer.txt` (or passed as `license_path`). The
-tools check only that it exists and hand its *path* to FreeSurfer as `FS_LICENSE`;
-they never read, copy, log or print it, and no image or repository contains one.
+tools check it once per call (it exists, can be read, and has a licence's structure:
+an email address, a number, a key; checked in memory, nothing kept) and hand its
+*path* to FreeSurfer as `FS_LICENSE`; they never copy, move, log or print it or change
+its permissions, no error message contains any of it, and no image or repository
+contains one. A licence problem is reported as `licence_required` /
+`licence_invalid`, never confused with a busy background-job slot
+(`waiting_for_job_slot`).
 
 **Notices.** The FreeSurfer Software License Agreement, prefaced with MGH's sentence
 as its Part B.1(b) requires, is [`licenses/FreeSurfer-LICENSE.txt`](licenses/FreeSurfer-LICENSE.txt)

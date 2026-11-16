@@ -76,6 +76,7 @@ def prepare_surfaces(
 
     Raises:
         LicenseMissingError: no licence file (the message says how to get one).
+        LicenseInvalidError: the licence file is unusable (the message says why).
         FileExistsError: the surface pipeline already ran in this subject folder.
         ValueError: a path outside the workspace, or a bad thread count.
     """
