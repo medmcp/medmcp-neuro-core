@@ -121,7 +121,8 @@ def test_shifted_scan_flagged(tmp_path: Path) -> None:
     assert group["qc"][2]["shift_mm"] == pytest.approx(3.0, abs=0.5)  # pyright: ignore[reportUnknownMemberType]
     assert group["qc"][0]["shift_mm"] < 0.5
     assert any(
-        "Scan 3 (run-03) shifted" in line and "rigid" in line for line in res["tell_the_user"]
+        "Scan 3 (run-03): moved ~3.0 mm" in line and "rigid" in line
+        for line in res["tell_the_user"]
     )
 
 

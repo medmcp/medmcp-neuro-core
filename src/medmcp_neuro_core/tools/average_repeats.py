@@ -711,15 +711,11 @@ def _average_group(
         if motion is not None:
             row.update(motion[i])
             row["reference_scan"] = ref + 1
-            moved: list[str] = []
-            if motion[i]["shift_mm"] >= _FLAG_SHIFT_MM:
-                moved.append(f"shifted ~{motion[i]['shift_mm']:.1f} mm")
-            if motion[i]["rotation_deg"] >= _FLAG_ROT_DEG:
-                moved.append(f"rotated ~{motion[i]['rotation_deg']:.1f}°")
-            if moved:
-                reasons.append(" and ".join(moved) + f" vs scan {ref + 1}")
+            shift, rot = motion[i]["shift_mm"], motion[i]["rotation_deg"]
+            if shift >= _FLAG_SHIFT_MM or rot >= _FLAG_ROT_DEG:
+                reasons.append(f"moved ~{shift:.1f} mm/{rot:.1f}° vs scan {ref + 1}")
         elif com_shift[i] >= _FLAG_SHIFT_MM:
-            reasons.append(f"centre shifted ~{com_shift[i]:.1f} mm vs scan 1")
+            reasons.append(f"centre moved ~{com_shift[i]:.1f} mm vs scan 1")
         c = corr[i]
         known = [v for v in corr if v is not None]
         # The most typical scan is the yardstick; with two scans only the second is named.
@@ -728,7 +724,7 @@ def _average_group(
             and i != corr_ref
             and (c < _FLAG_CORR or (len(known) > 2 and c < max(known) - _FLAG_CORR_GAP))
         ):
-            reasons.append(f"agrees less (r={c:.2f})")
+            reasons.append(f"r={c:.2f}")
         row["flag"] = ", ".join(reasons)
         if reasons:
             flagged.append((i, ", ".join(reasons)))
@@ -844,9 +840,9 @@ def _average_group(
     for i, why in flagged:
         scan = f"Scan {i + 1} ({_short_name(group[i])})"
         if register == "none":
-            tell.append(f"{scan} {why}: plain mean will blur; use register='rigid' or exclude it.")
+            tell.append(f"{scan}: {why}; plain mean will blur: use register='rigid' or exclude it.")
         else:
-            tell.append(f"{scan} {why}: corrected by the rigid alignment; check the PNG.")
+            tell.append(f"{scan}: {why}; corrected by the rigid alignment, check the PNG.")
     corr_known = [c for c in corr if c is not None]
     summary: list[str] = []
     if corr_known:
