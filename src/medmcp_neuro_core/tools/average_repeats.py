@@ -722,8 +722,11 @@ def _average_group(
             reasons.append(f"centre shifted ~{com_shift[i]:.1f} mm vs scan 1")
         c = corr[i]
         known = [v for v in corr if v is not None]
-        if c is not None and (
-            c < _FLAG_CORR or (len(known) > 2 and c < max(known) - _FLAG_CORR_GAP)
+        # The most typical scan is the yardstick; with two scans only the second is named.
+        if (
+            c is not None
+            and i != corr_ref
+            and (c < _FLAG_CORR or (len(known) > 2 and c < max(known) - _FLAG_CORR_GAP))
         ):
             reasons.append(f"agrees less (r={c:.2f})")
         row["flag"] = ", ".join(reasons)
@@ -843,7 +846,7 @@ def _average_group(
         if register == "none":
             tell.append(f"{scan} {why}: plain mean will blur; use register='rigid' or exclude it.")
         else:
-            tell.append(f"{scan} {why}: aligned, but check it.")
+            tell.append(f"{scan} {why}: corrected by the rigid alignment; check the PNG.")
     corr_known = [c for c in corr if c is not None]
     summary: list[str] = []
     if corr_known:
