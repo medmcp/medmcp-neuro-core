@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Every tool declares its effect (read-only, writes new files, destructive) for MedMCP's approval card.
+- `average_repeats`: averages repeated scans of one session (e.g. mpr-1..mpr-4, run-01/02) into one image, with a check that the scans agree and a warning for a moved scan. Before, there was no tool for this.
 - FreeSurfer 8.2.0 in the image (`/opt/freesurfer`), built in its own Dockerfile stages: amd64 from the official Ubuntu 24 package (SHA-256 pinned), arm64 from the v8.2.0 source with ITK 5.4.0 (no official arm64 build exists); both pruned to what recon-all needs and given `talairach_avi`. A modified FreeSurfer, marked as such (`/opt/freesurfer/MEDMCP-MODIFIED.txt`, version string, image label, NOTICE); the licence text ships with MGH's preface. FreeSurfer's environment is given only to the processes that run it. No licence key is ever part of the image.
 - `run_recon_all`: validates one T1 scan and the user's FreeSurfer licence (by path, never read), then runs `recon-all -all -no-v8 -parallel -openmp <threads>` as a background job (about an hour). Without a licence nothing starts and the result explains the free registration.
 - `recon_all_status`: progress of a recon-all or FastSurfer-surface run, or a list of all runs, from files in the workspace only.

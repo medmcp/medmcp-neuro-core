@@ -6,6 +6,7 @@ from mcp.server.fastmcp import FastMCP
 
 from medmcp_neuro_core.effects import tool_effect
 from medmcp_neuro_core.tools.atlas import lesion_frequency_map, lesion_load_by_atlas, list_atlases
+from medmcp_neuro_core.tools.average_repeats import average_repeats
 from medmcp_neuro_core.tools.freesurfer.recon import recon_all_status, run_recon_all
 from medmcp_neuro_core.tools.freesurfer.stats import freesurfer_stats
 from medmcp_neuro_core.tools.registration import apply_transform, coregister, register_to_template
@@ -20,6 +21,7 @@ mcp.add_tool(warmup, **tool_effect("read_only"))
 mcp.add_tool(register_to_template, **tool_effect("writes_new"))
 mcp.add_tool(coregister, **tool_effect("writes_new"))
 mcp.add_tool(apply_transform, **tool_effect("writes_new"))
+mcp.add_tool(average_repeats, **tool_effect("writes_new"))
 mcp.add_tool(segment_brain, **tool_effect("writes_new"))
 mcp.add_tool(list_brain_segmentation_labels, **tool_effect("read_only"))
 mcp.add_tool(super_resolve, **tool_effect("writes_new"))
