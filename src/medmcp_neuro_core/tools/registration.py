@@ -9,9 +9,8 @@ from pathlib import Path
 from typing import Literal, TypedDict
 
 from medmcp_neuro_core.tools._neuro import nii_stem, require_image
-from medmcp_neuro_core.tools._template import get_mni152_1mm
+from medmcp_neuro_core.tools._template import TemplateName, get_mni152_1mm
 
-_MNI_SPACE = "MNI152NLin2009cAsym"
 _TIMEOUT_FAST = 3600  # rigid / similarity / affine / synquick (≤1 h)
 _TIMEOUT_SYN = 7200  # full SyN                               (≤2 h)
 _TRANSFORM_MAP: dict[str, str] = {
@@ -136,6 +135,7 @@ def register_to_template(
     skull_stripped: bool,
     output_dir: Path | None = None,
     template_path: Path | None = None,
+    template_name: TemplateName = "MNI152NLin2009cAsym",
 ) -> RegisterToTemplateResult:
     """Register a structural NIfTI image to a standard-space template (default: MNI152).
 
@@ -145,11 +145,11 @@ def register_to_template(
 
     Normalizes a 3-D structural volume to a standard-space template using ANTsPy
     (the Python interface to ANTs — installed automatically as a package dependency,
-    no separate binary install required). The MNI152NLin2009cAsym 1 mm template is
-    read from ``~/.medmcp_neuro_core/templates/``, which the container image populates
-    at build time; running from source it is downloaded from the templateflow S3
-    bucket on first use and cached there. A custom template can be supplied via
-    ``template_path``.
+    no separate binary install required). Bundled 1 mm MNI152 templates
+    (``"MNI152NLin2009cAsym"`` or ``"MNI152NLin6Asym"``) are read from
+    ``~/.medmcp_neuro_core/templates/``, which the container image populates at build
+    time; running from source they are downloaded from the templateflow S3 bucket on
+    first use and cached there. A custom template can be supplied via ``template_path``.
 
     Timing varies with image size and hardware; ``syn`` is significantly slower than the others.
 
@@ -171,13 +171,16 @@ def register_to_template(
             ``"synquick"`` — affine + fast SyN deformable warp; corrects non-linear
             differences.
             ``"syn"`` — affine + full SyN deformable warp; highest accuracy, slowest.
-        output_dir: Directory where outputs are written. Defaults to ``input_path.parent``.
-        template_path: Custom reference template. Defaults to MNI152NLin2009cAsym 1 mm.
         skull_stripped: Set to ``True`` when ``input_path`` has already been skull-stripped
             (e.g. output of ``skull_strip``). Selects the brain-extracted
             (``desc-brain``) MNI152 template so that skull tissue in the reference
             does not degrade registration quality. Ignored when ``template_path`` is
             provided explicitly.
+        output_dir: Directory where outputs are written. Defaults to ``input_path.parent``.
+        template_path: Custom reference template. Overrides ``template_name``.
+        template_name: Built-in MNI152 1 mm template to register to when
+            ``template_path`` is omitted: ``"MNI152NLin2009cAsym"`` (default) or
+            ``"MNI152NLin6Asym"``. Ignored when ``template_path`` is provided explicitly.
 
     Returns:
         ``RegisterToTemplateResult`` on success. Pass ``forward_transforms`` directly
@@ -186,7 +189,7 @@ def register_to_template(
 
     Raises:
         FileNotFoundError: If ``input_path`` or the resolved template does not exist.
-        ValueError: If ``input_path`` is truncated or corrupt.
+        ValueError: If ``input_path`` is truncated/corrupt or ``template_name`` is invalid.
         RuntimeError: If antspyx is not installed or registration fails.
     """
     _check_antspy()
@@ -198,12 +201,12 @@ def register_to_template(
     if template_path is not None:
         tmpl = template_path
     else:
-        tmpl = get_mni152_1mm(skull_stripped=skull_stripped)
+        tmpl = get_mni152_1mm(skull_stripped=skull_stripped, name=template_name)
     if not tmpl.exists():
         raise FileNotFoundError(f"Template not found: {tmpl}")
 
     stem = nii_stem(input_path)
-    space = _MNI_SPACE if template_path is None else _space_label(tmpl)
+    space = template_name if template_path is None else _space_label(tmpl)
     out_registered = out_dir / f"{stem}_space-{space}.nii.gz"
     prefix = str(out_dir / f"{stem}_to_{space}_")
     ants_type = _TRANSFORM_MAP[transform_type]
@@ -255,7 +258,7 @@ def register_to_template(
             "  - native→template: transforms=forward_transforms (no invert_flags needed)\n"
             "  - template→native: transforms=inverse_transforms, "
             "invert_flags=inverse_invert_flags\n"
-            'When the reference is the MNI template, set output_space="MNI152NLin2009cAsym".\n'
+            f'When the reference is the MNI template, set output_space="{space}".\n'
             "Otherwise ask what processing step to run next."
         ),
     }

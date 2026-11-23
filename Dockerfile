@@ -381,13 +381,14 @@ RUN /app/.venv/bin/python -c \
  && test -x /app/.venv/bin/smore-train \
  && test -x /app/.venv/bin/smore-test
 
-# Bake the MNI152 template so register_to_template runs with --network none. Both
-# variants: the skull-stripped (desc-brain) one is what the registration skill uses
-# after skull_strip, so omitting it would leave that path broken offline. Populated
-# through the tool's own resolver, so the cache location and filenames cannot drift
-# from the code that reads them.
+# Bake the MNI152 templates so register_to_template runs with --network none. All
+# variants (full-head and skull-stripped desc-brain for both MNI152NLin2009cAsym and
+# MNI152NLin6Asym): the skull-stripped one is what the registration skill uses after
+# skull_strip, so omitting it would leave that path broken offline. Populated through
+# the tool's own resolver, so the cache location and filenames cannot drift from the
+# code that reads them.
 RUN retry /app/.venv/bin/python -c \
-    "from medmcp_neuro_core.tools._template import get_mni152_1mm; get_mni152_1mm(skull_stripped=False); get_mni152_1mm(skull_stripped=True)"
+    "from medmcp_neuro_core.tools._template import get_mni152_1mm; [get_mni152_1mm(skull_stripped=s, name=n) for n in ('MNI152NLin2009cAsym', 'MNI152NLin6Asym') for s in (False, True)]"
 
 # Bake the lesion-load atlases (lesion_load_by_atlas) for --network none, through the
 # same resolver the tool reads them with. Only atlases cleared for redistribution are
