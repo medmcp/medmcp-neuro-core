@@ -1196,7 +1196,7 @@ requires-dist = [
     { name = "antspyx", specifier = ">=0.5" },
     { name = "eclare", specifier = "==1.0.1" },
     { name = "hd-bet", specifier = ">=2.0.1" },
-    { name = "mcp", specifier = ">=1.0" },
+    { name = "mcp", specifier = ">=1.19,<2" },
     { name = "nilearn", extras = ["plotting"], specifier = ">=0.11" },
     { name = "smore", git = "https://gitlab.com/iacl/smore?tag=v4.0.5" },
     { name = "torch", specifier = "==2.7.1", index = "https://download.pytorch.org/whl/cu128" },
