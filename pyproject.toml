@@ -35,7 +35,7 @@ dependencies = [
     # relaxed in override-dependencies below.
     "eclare==1.0.1",
     "hd-bet>=2.0.1",
-    "mcp>=1.0",
+    "mcp>=1.19,<2",
     "smore==4.0.5",
     # lesion_frequency_map figure (BSD-3); [plotting] pulls matplotlib.
     "nilearn[plotting]>=0.11",
