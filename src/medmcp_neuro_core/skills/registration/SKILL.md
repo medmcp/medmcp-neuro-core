@@ -48,6 +48,16 @@ When a T1w has been registered to the template and the user wants an additional 
 Do **not** re-register the contrast directly to the template — this wastes time, produces
 inconsistent deformations, and makes native-space analysis harder.
 
+### Averaging repeated scans of one session
+
+Use `average_repeats` when a session holds several identical scans of one sequence
+(OASIS `mpr-1`..`mpr-4`, BIDS `run-01`/`run-02`) and the user wants one image.
+Repeats exist for signal-to-noise and to survive motion in one of them. Never average
+different sequences, contrasts or sessions. The plain mean (`register="none"`, the
+default) is only right for scans on the same grid with little motion; when the tool
+refuses the grid or flags a moved scan, offer `register="rigid"` or `exclude` for that
+scan. Show `tell_the_user` as given; do not write ANTs/FSL commands for this yourself.
+
 ## Gotchas
 
 - For label images (brain masks, atlas parcellations), use `interpolation="NearestNeighbor"`

@@ -20,6 +20,7 @@ EXPECTED: dict[str, Effect] = {
     "register_to_template": "writes_new",
     "coregister": "writes_new",
     "apply_transform": "writes_new",
+    "average_repeats": "writes_new",
     "segment_brain": "writes_new",
     "list_brain_segmentation_labels": "read_only",
     "super_resolve": "writes_new",
