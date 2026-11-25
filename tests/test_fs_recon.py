@@ -22,6 +22,7 @@ from medmcp_neuro_core.tools.freesurfer.recon import (
     recon_all_status,
     run_recon_all,
 )
+from tests.conftest import write_running_job
 
 FAKE_RECON_ALL = """#!/usr/bin/env bash
 # Stand-in for recon-all: -s <subject> -i <t1> -sd <subjects_dir> ...
@@ -126,6 +127,45 @@ def test_core_job_request(
     assert "started: true" in result["_render"]
     assert not (workspace / "subjects" / "s1").exists()
     assert not (workspace / ".medmcp" / "freesurfer" / "jobs").exists()
+
+
+def test_busy_job_slot_waits(
+    workspace: Path, licence: Path, t1: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another job of this stack holds the slot: nothing requested, nothing created."""
+    monkeypatch.setenv("MEDMCP_JOBS", "1")
+    busy = write_running_job(workspace, kind="fastsurfer-surfaces")
+    result = run_recon_all(str(t1), str(workspace / "subjects2"), subject_id="s1")
+    assert result["status"] == "waiting_for_job_slot"
+    assert "medmcp_job" not in result
+    assert result["running_job"]["job_id"] == busy
+    assert result["running_job"]["pipeline"].startswith("FastSurfer")
+    assert "NOT a licence problem" in result["note"]
+    assert result["retry_call"]["tool"] == "run_recon_all"
+    assert result["retry_call"]["arguments"]["license_path"] == str(licence)
+    assert result["retry_call"]["arguments"]["subject_id"] == "s1"
+    assert not (workspace / "subjects2").exists()
+
+
+def test_slot_check_only_when_the_core_runs_jobs(
+    workspace: Path, licence: Path, t1: Path, fake_freesurfer: Path
+) -> None:
+    """Without a core that runs jobs there is no slot: the detached job starts."""
+    write_running_job(workspace)
+    result = run_recon_all(str(t1), str(workspace / "subjects"), threads=1)
+    assert result["status"] in {"running", "done", "starting"}, result
+
+
+def test_invalid_licence_starts_nothing(workspace: Path, t1: Path) -> None:
+    """A malformed licence: licence_invalid, no job, no folder."""
+    bad = workspace / ".medmcp" / "licenses" / "freesurfer.txt"
+    bad.parent.mkdir(parents=True)
+    bad.write_text("hello\n")
+    result = run_recon_all(str(t1), str(workspace / "subjects"))
+    assert result["status"] == "licence_invalid"
+    assert "structure" in (result["error"] or "")
+    assert "medmcp_job" not in result
+    assert not (workspace / "subjects").exists()
 
 
 def test_job_runs_recon_all_and_records_done(

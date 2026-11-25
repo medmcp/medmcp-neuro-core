@@ -241,7 +241,7 @@ def run(request: JsonDict) -> int:
         "core_job_id": os.environ.get(JOB_ID_ENV) or None,
         "step": None,
         "command": None,
-        # Paths and settings only; the licence file's contents are never read here.
+        # Paths and settings only; nothing of the licence file's content.
         "request": {k: v for k, v in request.items() if k != "registry"},
     }
     job = _Job(jdir, state)
