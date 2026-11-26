@@ -107,3 +107,41 @@ def test_default_download_uses_full_template_url(tmp_path: Path) -> None:
         get_mni152_1mm(skull_stripped=False)
     url_used = mock_dl.call_args[0][0]
     assert "desc-brain" not in url_used
+
+
+# ── MNI152NLin6Asym template ──────────────────────────────────────────────────
+
+
+def test_nlin6asym_cache_hit_and_download(tmp_path: Path) -> None:
+    """name='MNI152NLin6Asym' resolves and caches the NLin6Asym template."""
+    cache_dir = tmp_path / "cache"
+    expected_full = cache_dir / _tmpl._MNI152_BRATS_FILENAME  # type: ignore[reportPrivateUsage]
+    expected_brain = cache_dir / _tmpl._MNI152_BRATS_BRAIN_FILENAME  # type: ignore[reportPrivateUsage]
+    with (
+        patch.object(_tmpl, "_CACHE_DIR", cache_dir),
+        patch.object(urllib.request, "urlretrieve") as mock_dl,
+    ):
+        res_full = get_mni152_1mm(skull_stripped=False, name="MNI152NLin6Asym")
+        res_brain = get_mni152_1mm(skull_stripped=True, name="MNI152NLin6Asym")
+
+    assert res_full == expected_full
+    assert res_brain == expected_brain
+    urls = [c.args[0] for c in mock_dl.call_args_list]
+    assert all("tpl-MNI152NLin6Asym" in u for u in urls)
+    assert "desc-brain" not in urls[0]
+    assert "desc-brain" in urls[1]
+
+    # Subsequent calls hit the cache without downloading.
+    with (
+        patch.object(_tmpl, "_CACHE_DIR", cache_dir),
+        patch.object(urllib.request, "urlretrieve") as mock_dl_cached,
+    ):
+        assert get_mni152_1mm(skull_stripped=False, name="MNI152NLin6Asym") == expected_full
+        assert get_mni152_1mm(skull_stripped=True, name="MNI152NLin6Asym") == expected_brain
+    mock_dl_cached.assert_not_called()
+
+
+def test_unknown_template_name_raises() -> None:
+    """Passing an unsupported template name raises ValueError."""
+    with pytest.raises(ValueError, match="Unknown template"):
+        get_mni152_1mm(name="MNI305")  # type: ignore[arg-type]

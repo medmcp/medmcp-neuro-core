@@ -259,7 +259,7 @@ def test_register_to_template_skull_stripped_calls_brain_template(tmp_path: Path
         register_to_template(
             inp, transform_type="rigid", output_dir=tmp_path / "out", skull_stripped=True
         )
-    mock_tmpl.assert_called_once_with(skull_stripped=True)
+    mock_tmpl.assert_called_once_with(skull_stripped=True, name="MNI152NLin2009cAsym")
 
 
 def test_register_to_template_no_skull_stripped_calls_full_template(tmp_path: Path) -> None:
@@ -276,7 +276,30 @@ def test_register_to_template_no_skull_stripped_calls_full_template(tmp_path: Pa
         register_to_template(
             inp, transform_type="rigid", skull_stripped=False, output_dir=tmp_path / "out"
         )
-    mock_tmpl.assert_called_once_with(skull_stripped=False)
+    mock_tmpl.assert_called_once_with(skull_stripped=False, name="MNI152NLin2009cAsym")
+
+
+def test_register_to_template_nlin6asym_template_name(tmp_path: Path) -> None:
+    """template_name='MNI152NLin6Asym' resolves that template and sets BIDS space."""
+    inp = tmp_path / "sub-01_T1w_desc-brain.nii.gz"
+    write_nifti(inp)
+    tmpl = tmp_path / "MNI152NLin6Asym_res-01_desc-brain_T1w.nii.gz"
+    write_nifti(tmpl)
+    with (
+        patch(_CHECK_ANTSPY),
+        patch(_GET_TEMPLATE, return_value=tmpl) as mock_tmpl,
+        patch(_SUBPROCESS_RUN, side_effect=_mock_register),
+    ):
+        result = register_to_template(
+            inp,
+            transform_type="rigid",
+            skull_stripped=True,
+            output_dir=tmp_path / "out",
+            template_name="MNI152NLin6Asym",
+        )
+    mock_tmpl.assert_called_once_with(skull_stripped=True, name="MNI152NLin6Asym")
+    assert result["registered_path"].endswith("sub-01_T1w_desc-brain_space-MNI152NLin6Asym.nii.gz")
+    assert 'output_space="MNI152NLin6Asym"' in result["_render"]
 
 
 def test_register_to_template_custom_template_ignores_skull_stripped(tmp_path: Path) -> None:
