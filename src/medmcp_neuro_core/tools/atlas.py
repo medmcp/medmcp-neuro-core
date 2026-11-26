@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from medmcp_neuro_core.tools._atlas import ATLASES, AtlasName, load_atlas
-from medmcp_neuro_core.tools._neuro import nii_stem
+from medmcp_neuro_core.tools._neuro import is_same_grid, nii_stem
 from medmcp_neuro_core.tools._overlap import Row, frequency, lesion_voxels
 from medmcp_neuro_core.tools._template import get_mni152_1mm
 from medmcp_neuro_core.tools.registration import (
@@ -383,12 +383,6 @@ def _load(path: Path) -> tuple[Any, Any]:
     return data, affine
 
 
-def _same_grid(shape_a: tuple[int, ...], aff_a: Any, shape_b: tuple[int, ...], aff_b: Any) -> bool:
-    import numpy as np
-
-    return tuple(shape_a[:3]) == tuple(shape_b[:3]) and bool(np.allclose(aff_a, aff_b, atol=1e-3))
-
-
 def _plot(freq_path: Path, template: Path, fig_path: Path, n: int) -> None:
     """Render the frequency map over the template (nilearn, Agg backend)."""
     import matplotlib
@@ -482,7 +476,7 @@ def lesion_frequency_map(
         transforms = forward_transforms_list[i] if forward_transforms_list is not None else []
         if not transforms:
             data, aff = _load(p)
-            if _same_grid(tuple(data.shape), aff, tmpl_shape, tmpl_aff):
+            if is_same_grid(tuple(data.shape), aff, tmpl_shape, tmpl_aff):
                 final_paths.append(p)
                 continue
         out = output_dir / f"{nii_stem(p)}_space-{_MNI_SPACE}.nii.gz"

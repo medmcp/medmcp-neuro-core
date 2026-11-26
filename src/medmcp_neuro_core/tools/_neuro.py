@@ -1,11 +1,16 @@
 """Shared internal utilities for medmcp-neuro-core tools."""
 
+from __future__ import annotations
+
 import os
 import shutil
 import sys
 import zlib
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 # Shared device convention: every GPU-capable tool accepts one of these (default "auto").
 Device = Literal["auto", "cuda", "mps", "cpu"]
@@ -46,6 +51,100 @@ def require_image(path: Path, role: str = "Input") -> None:
     except (OSError, EOFError, ValueError, zlib.error, ImageFileError) as exc:
         msg = f"{role} is unreadable: the file is truncated or corrupt ({exc}): {path}"
         raise ValueError(msg) from exc
+
+
+def nifti_load(
+    path: Path,
+    role: str = "Input",
+    *,
+    dtype: Any | None = None,
+    require_3d: bool = True,
+) -> tuple[NDArray[Any], Any, tuple[float, float, float]]:
+    """Load a NIfTI or MGZ spatial image and return ``(data, affine, zooms)``.
+
+    Validates readability with :func:`require_image`. When ``require_3d`` is True
+    (default), squeezes a trailing singleton 4th dimension ``(X, Y, Z, 1)`` and rejects
+    other non-3-D shapes. When ``dtype`` is an integer numpy dtype, rounds floating-point
+    voxel values via ``np.rint`` before casting.
+
+    Args:
+        path: Path to the NIfTI (``.nii``, ``.nii.gz``) or MGZ (``.mgz``) image.
+        role: Human-readable role label used in error messages.
+        dtype: Optional numpy dtype to cast the voxel array to.
+        require_3d: Enforce a 3-D spatial volume (squeezing ``(X, Y, Z, 1)``).
+
+    Returns:
+        Tuple of ``(voxel_array, affine_4x4, (zoom_x, zoom_y, zoom_z))``.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not exist.
+        ValueError: If the image is corrupt, has no spatial geometry, or fails ``require_3d``.
+    """
+    import nibabel as nib
+    import numpy as np
+    from nibabel.spatialimages import SpatialImage
+
+    require_image(path, role=role)
+    img = nib.load(str(path))  # pyright: ignore[reportUnknownMemberType]
+    if not isinstance(img, SpatialImage):
+        raise ValueError(f"{role} is not a spatial image: {path}")
+
+    raw: Any = np.asarray(img.dataobj)  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+    if require_3d:
+        if raw.ndim == 4 and raw.shape[3] == 1:
+            raw = raw[..., 0]
+        if raw.ndim != 3:
+            raise ValueError(f"{role} must be a 3-D volume, got shape {raw.shape}: {path}")
+
+    if dtype is not None:
+        if np.issubdtype(dtype, np.integer):
+            arr: NDArray[Any] = np.rint(np.asarray(raw, dtype=np.float64)).astype(dtype)
+        else:
+            arr = np.asarray(raw, dtype=dtype)
+    else:
+        arr = np.asarray(raw)
+
+    raw_zooms = img.header.get_zooms()[:3]  # pyright: ignore[reportUnknownMemberType]
+    zooms = (float(raw_zooms[0]), float(raw_zooms[1]), float(raw_zooms[2]))
+    return arr, img.affine, zooms
+
+
+def nifti_save(
+    arr: NDArray[Any],
+    affine: Any,
+    path: Path,
+    zooms: tuple[float, float, float] | None = None,
+) -> Path:
+    """Save a numpy array as a NIfTI-1 file preserving affine and optional voxel spacing.
+
+    Creates parent directories if absent and writes ``path``.
+
+    Args:
+        arr: Voxel array to write.
+        affine: 4x4 affine matrix.
+        path: Destination NIfTI file path (``.nii`` or ``.nii.gz``).
+        zooms: Optional 3-element voxel spacing tuple ``(dx, dy, dz)`` in mm.
+
+    Returns:
+        The written ``path``.
+    """
+    import nibabel as nib
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out_img = nib.Nifti1Image(arr, affine)
+    if zooms is not None:
+        out_img.header.set_zooms(zooms)
+    nib.save(out_img, str(path))  # pyright: ignore[reportUnknownMemberType]
+    return path
+
+
+def is_same_grid(
+    shape_a: tuple[int, ...], aff_a: Any, shape_b: tuple[int, ...], aff_b: Any
+) -> bool:
+    """Return True if two volumes share the same 3-D spatial shape and affine."""
+    import numpy as np
+
+    return tuple(shape_a[:3]) == tuple(shape_b[:3]) and bool(np.allclose(aff_a, aff_b, atol=1e-3))
 
 
 def detect_devices() -> list[str]:

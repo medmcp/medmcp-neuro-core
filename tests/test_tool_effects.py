@@ -22,6 +22,7 @@ EXPECTED: dict[str, Effect] = {
     "apply_transform": "writes_new",
     "segment_brain": "writes_new",
     "list_brain_segmentation_labels": "read_only",
+    "select_mask_of_interest": "writes_new",
     "super_resolve": "writes_new",
     "list_atlases": "read_only",
     "lesion_load_by_atlas": "writes_new",
